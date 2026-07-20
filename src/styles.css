@@ -33,12 +33,16 @@
   background: #1769e0;
   color: #fff;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
-  cursor: pointer;
+  cursor: grab;
   font-size: 14px;
   font-weight: 600;
+  touch-action: none;
+  user-select: none;
+  will-change: left, top;
 }
 
 .crm-alert-trigger:hover { background: #0e56bd; }
+.crm-alert-trigger.is-dragging { cursor: grabbing; }
 .crm-alert-trigger__count {
   min-width: 22px;
   height: 22px;
