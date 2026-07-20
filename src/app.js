@@ -6,8 +6,10 @@ import {
   loadCache,
   loadOverrides,
   loadRoster,
+  loadTriggerPosition,
   saveCache,
   saveRoster,
+  saveTriggerPosition,
   setHomeClassOverride
 } from "./storage.js";
 import { AlertUI } from "./ui.js";
@@ -39,6 +41,7 @@ export async function startApp() {
   let issues = [];
   let meta = {};
   let loadingPromise = null;
+  const triggerPosition = await loadTriggerPosition();
 
   const ui = new AlertUI({
     onOpen: async () => {
@@ -48,8 +51,11 @@ export async function startApp() {
     onRefresh: (force) => refresh(force),
     onImport: importRoster,
     onPromote: promoteHomeClass,
-    onRestore: restoreHomeClass
-  });
+    onRestore: restoreHomeClass,
+    onTriggerPositionChange: (position) => {
+      saveTriggerPosition(position).catch((error) => console.error("学情异常按钮位置保存失败", error));
+    }
+  }, { triggerPosition });
   ui.mount();
   ui.update({ roster, issues, meta });
 
