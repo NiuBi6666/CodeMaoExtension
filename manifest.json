@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "CRM 学情异常助手",
+  "version": "0.2.0",
+  "description": "在深空 CRM 中汇总本人学员的旷课、课后作业、课后拓展和调课异常。",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://sk-crm.codemao.cn/*",
+    "https://api-live-class-crm.codemao.cn/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://sk-crm.codemao.cn/*"],
+      "js": ["src/page-bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://sk-crm.codemao.cn/*"],
+      "js": ["src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/*.js"],
+      "matches": ["https://sk-crm.codemao.cn/*"]
+    }
+  ],
+  "action": {
+    "default_title": "CRM 学情异常助手"
+  }
+}
