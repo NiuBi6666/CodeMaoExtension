@@ -1,0 +1,625 @@
+import { buildIssues, inferLessonEndedAt, normalizeId, normalizeText, parseDate } from "./core.js";
+
+const CHANNEL = "crm-learning-alert:v1";
+const REQUEST_TIMEOUT_MS = 20000;
+
+function walkObjects(root, visitor, maxDepth = 6) {
+  const queue = [{ value: root, depth: 0, parent: null, key: "" }];
+  const seen = new Set();
+  while (queue.length) {
+    const current = queue.shift();
+    const value = current.value;
+    if (!value || typeof value !== "object" || seen.has(value) || current.depth > maxDepth) continue;
+    seen.add(value);
+    visitor(value, current);
+    if (Array.isArray(value)) {
+      value.forEach((child, index) => queue.push({ value: child, depth: current.depth + 1, parent: value, key: String(index) }));
+    } else {
+      Object.entries(value).forEach(([key, child]) => queue.push({ value: child, depth: current.depth + 1, parent: value, key }));
+    }
+  }
+}
+
+function firstValue(object, keys) {
+  for (const key of keys) {
+    const value = object?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return "";
+}
+
+function firstDate(object, keys) {
+  for (const key of keys) {
+    const value = object?.[key];
+    if (parseDate(value)) return value;
+  }
+  return "";
+}
+
+function primitiveFields(object, expression) {
+  const result = {};
+  for (const [key, value] of Object.entries(object || {})) {
+    if (expression.test(key) && ["string", "number"].includes(typeof value)) result[key] = value;
+  }
+  return result;
+}
+
+export class BridgeClient {
+  constructor() {
+    this.pending = new Map();
+    this.captures = {};
+    this.sequence = 0;
+    window.addEventListener("message", (event) => this.handleMessage(event));
+  }
+
+  handleMessage(event) {
+    const message = event.data;
+    if (event.source !== window || message?.channel !== CHANNEL || message.direction !== "from-page") return;
+    if (message.type === "CAPTURE" && message.capture?.kind) this.captures[message.capture.kind] = message.capture;
+    if (message.type !== "RESPONSE") return;
+    const pending = this.pending.get(String(message.requestId));
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    this.pending.delete(String(message.requestId));
+    if (message.ok) pending.resolve(message.result);
+    else pending.reject(new Error(message.error || "CRM 页面查询失败"));
+  }
+
+  request(type, payload = {}) {
+    const requestId = `${Date.now()}-${this.sequence += 1}`;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(requestId);
+        reject(new Error("CRM 页面响应超时，请刷新页面后重试"));
+      }, REQUEST_TIMEOUT_MS);
+      this.pending.set(requestId, { resolve, reject, timer });
+      window.postMessage({ channel: CHANNEL, direction: "to-page", requestId, type, ...payload }, location.origin);
+    });
+  }
+
+  async state() {
+    const state = await this.request("STATE_REQUEST");
+    this.captures = { ...(state.captures || {}), ...this.captures };
+    return { ...state, captures: this.captures };
+  }
+
+  replay(kind, params) {
+    return this.request("REPLAY_REQUEST", { kind, params });
+  }
+}
+
+function entityArrays(root) {
+  const arrays = [];
+  walkObjects(root, (value, current) => {
+    if (Array.isArray(value) && value.length && value.some((item) => item && typeof item === "object" && !Array.isArray(item))) {
+      arrays.push({ values: value, parent: current.parent, key: current.key });
+    }
+  });
+  return arrays;
+}
+
+function campScore(item) {
+  if (!item || typeof item !== "object") return 0;
+  const keys = Object.keys(item).join(" ").toLowerCase();
+  let score = 0;
+  if (/campid|camp_id/.test(keys)) score += 5;
+  if (/campname|camp_name/.test(keys)) score += 4;
+  if (/starttime|endtime|status|phase/.test(keys)) score += 1;
+  return score;
+}
+
+export function extractCamps(payload) {
+  const candidates = entityArrays(payload)
+    .map(({ values }) => ({ values, score: values.slice(0, 5).reduce((sum, item) => sum + campScore(item), 0) }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+  const combined = candidates.flatMap((candidate) => candidate.values);
+  const byId = new Map();
+  for (const raw of combined) {
+    const id = normalizeId(firstValue(raw, ["campId", "camp_id", "id"]));
+    const name = normalizeText(firstValue(raw, ["campName", "camp_name", "name", "title"]));
+    if (!id || !name || byId.has(id)) continue;
+    const nestedState = raw.liveCampState || raw.campState || {};
+    const status = normalizeText(firstValue(raw, ["campStatusName", "statusName", "campStatus", "status", "phase"]) || firstValue(nestedState, ["name", "desc"]));
+    const endedAt = firstDate(raw, ["endTime", "campEndTime", "endedAt", "endDate"]);
+    const explicitlyClosed = /结营|已结束|结束|closed|finished|ended|^end$/i.test(status);
+    const active = !explicitlyClosed && (!endedAt || parseDate(endedAt) >= new Date());
+    byId.set(id, { id, name, status, active, raw });
+  }
+  return [...byId.values()].filter((camp) => camp.active);
+}
+
+function lessonScore(item) {
+  if (!item || typeof item !== "object") return 0;
+  const keys = Object.keys(item).join(" ").toLowerCase();
+  let score = 0;
+  if (/lessonid|lessonids|camp.*lesson.*id|course.*lesson.*id|lbkcourseid/.test(keys)) score += 5;
+  if (/lessonname|coursename|lesson_name|lbkcoursename/.test(keys)) score += 4;
+  if (/starttime|endtime|lessondate|classtime/.test(keys)) score += 2;
+  return score;
+}
+
+export function extractLessons(payload) {
+  const candidates = entityArrays(payload)
+    .map(({ values }) => ({ values, score: values.slice(0, 5).reduce((sum, item) => sum + lessonScore(item), 0) }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+  if (!candidates.length) return [];
+  const byId = new Map();
+  for (const raw of candidates[0].values) {
+    const id = normalizeId(firstValue(raw, ["lbkCourseId", "campLessonId", "lessonId", "courseLessonId", "id"]));
+    const name = normalizeText(firstValue(raw, ["lbkCourseName", "lessonName", "courseName", "name", "title"]));
+    if (!id || !name) continue;
+    const endedAt = firstDate(raw, ["lessonEndTime", "classEndTime", "courseEndTime", "endTime", "endedAt", "lessonDate"]);
+    const requestFields = {
+      ...primitiveFields(raw, /(lesson|course).*id|id.*(lesson|course)|lessonname|coursename/i),
+      id,
+      lessonId: firstValue(raw, ["lessonId", "campLessonId", "courseLessonId", "id"]),
+      campLessonId: firstValue(raw, ["campLessonId", "lessonId", "id"]),
+      courseLessonId: firstValue(raw, ["courseLessonId", "lessonId", "id"]),
+      courseId: firstValue(raw, ["courseId"]),
+      lbkCourseId: firstValue(raw, ["lbkCourseId", "courseId"]),
+      lessonIds: Array.isArray(raw.lessonIds) ? raw.lessonIds : [],
+      name,
+      lessonName: name
+    };
+    byId.set(id, { id, name, endedAt, requestFields, raw });
+  }
+  return [...byId.values()];
+}
+
+export function extractClassSchedules(payload) {
+  const schedules = new Map();
+  const candidates = entityArrays(payload)
+    .map(({ values }) => ({
+      values,
+      score: values.slice(0, 5).reduce((sum, item) => {
+        const keys = Object.keys(item || {}).join(" ").toLowerCase();
+        return sum + (/classid|classname/.test(keys) ? 3 : 0) + (/time|week|schedule/.test(keys) ? 2 : 0);
+      }, 0)
+    }))
+    .sort((a, b) => b.score - a.score);
+  for (const raw of candidates[0]?.values || []) {
+    const className = normalizeText(firstValue(raw, ["className", "classCode", "liveClassName", "name"]));
+    const classId = normalizeId(firstValue(raw, ["classId", "liveClassId", "id"]));
+    const directTime = normalizeText(firstValue(raw, [
+      "classTimeDesc", "classTime", "weeklyClassTime", "scheduleTime", "classSchedule",
+      "liveClassTime", "courseTime", "startClassTime", "classStartTime"
+    ]));
+    const week = normalizeText(firstValue(raw, ["weekDesc", "weekName", "weekDayName", "dayOfWeek"]));
+    const start = normalizeText(firstValue(raw, ["startTime", "beginTime", "startClock"]));
+    const classTime = directTime || [week, start].filter(Boolean).join(" ");
+    if (className) schedules.set(className, classTime);
+    if (classId) schedules.set(classId, classTime);
+  }
+  return schedules;
+}
+
+function studentScore(item) {
+  if (!item || typeof item !== "object") return 0;
+  const keys = Object.keys(item).join(" ").toLowerCase();
+  let score = 0;
+  if (/studentid|student.*user.*id|userid|accountid/.test(keys)) score += 5;
+  if (/studentname|username|realname/.test(keys)) score += 3;
+  if (/classname|classcode|attendance|attend|homework|afterclass/.test(keys)) score += 2;
+  return score;
+}
+
+function extractStudentArray(payload) {
+  const candidates = entityArrays(payload)
+    .map((candidate) => ({ ...candidate, score: candidate.values.slice(0, 5).reduce((sum, item) => sum + studentScore(item), 0) }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return candidates[0] || { values: [], parent: null };
+}
+
+function parseHomeworkText(text) {
+  const items = [];
+  const normalized = normalizeText(text);
+  const expression = /([^\s]+题)[^\d]{0,20}提交\s*(\d+)\s*\/\s*(\d+)/g;
+  let match;
+  while ((match = expression.exec(normalized))) {
+    items.push({ type: match[1], submitted: Number(match[2]), total: Number(match[3]) });
+  }
+  return items;
+}
+
+function homeworkFromValue(value, fallbackType = "作业", depth = 0) {
+  if (depth > 5 || value == null) return [];
+  if (typeof value === "string") return parseHomeworkText(value);
+  if (Array.isArray(value)) return value.flatMap((item) => homeworkFromValue(item, fallbackType, depth + 1));
+  if (typeof value !== "object") return [];
+
+  let submitted = firstValue(value, ["submitted", "submitCount", "finishedCount", "finishCount", "completedCount"]);
+  let total = firstValue(value, ["total", "totalCount", "questionCount", "count"]);
+  const completed = firstValue(value, ["completed", "isCompleted", "finished", "isFinished", "finishStatus", "status"]);
+  if (submitted === "" && total === "" && completed !== "" && /^(?:0|1|true|false|完成|未完成|finished|unfinished)$/i.test(normalizeText(completed))) {
+    const isComplete = completed === true || completed === 1 || completed === "1" || /^(?:完成|finished|true)$/i.test(normalizeText(completed));
+    submitted = isComplete ? 1 : 0;
+    total = 1;
+  }
+  const own = [];
+  if (submitted !== "" && total !== "" && Number.isFinite(Number(submitted)) && Number.isFinite(Number(total))) {
+    const passed = firstValue(value, ["passed", "passCount", "right", "rightCount", "correctCount"]);
+    own.push({
+      type: normalizeText(firstValue(value, [
+        "itemName", "homeworkName", "assignmentName", "taskName", "questionTypeName",
+        "typeName", "name", "title", "label"
+      ])) || fallbackType,
+      submitted: Number(submitted),
+      total: Number(total),
+      passed: Number(passed === "" ? submitted : passed)
+    });
+  }
+  for (const [key, child] of Object.entries(value)) {
+    if (typeof child === "object" && child) own.push(...homeworkFromValue(child, normalizeText(key) || fallbackType, depth + 1));
+    else if (typeof child === "string") own.push(...parseHomeworkText(child));
+  }
+  return own;
+}
+
+export function extractHomework(record) {
+  const exactGroups = [
+    ["创作题", "creationAfterclassRightHomework", "creationAfterclassFinishHomework", "creationAfterclassAllHomework"],
+    ["OJ题", "ojAfterclassRightHomework", "ojAfterclassFinishHomework", "ojAfterclassAllHomework"],
+    ["客观题", "ptAfterclassRightHomework", "ptAfterclassFinishHomework", "ptAfterclassAllHomework"]
+  ];
+  const exactItems = exactGroups.flatMap(([type, rightKey, finishKey, allKey]) => {
+    if (record?.[allKey] === undefined) return [];
+    return [{
+      type,
+      submitted: Number(record[finishKey] || 0),
+      total: Number(record[allKey] || 0),
+      passed: Number(record[rightKey] || 0)
+    }];
+  });
+  const roots = [];
+  for (const [key, value] of Object.entries(record || {})) {
+    if (/afterclass(?:tz|tzk)/i.test(key)) continue;
+    if (/homework|after.?class|after.?course|coursework|课后作业/i.test(key)) roots.push([key, value]);
+  }
+  const items = [...exactItems, ...roots.flatMap(([key, value]) => homeworkFromValue(value, normalizeText(key)))];
+  const unique = new Map();
+  for (const item of items) {
+    const signature = `${item.type}:${item.submitted}:${item.total}`;
+    if (!unique.has(signature)) unique.set(signature, item);
+  }
+  return [...unique.values()];
+}
+
+export function extractExtensions(record) {
+  const exactGroups = [
+    ["创作题", "creationAfterclassTzRightHomework", "creationAfterclassTzFinishHomework", "creationAfterclassTzAll"],
+    ["OJ题", "ojAfterclassTzkRightHomework", "ojAfterclassTzkFinishHomework", "ojAfterclassTzkAll"],
+    ["客观题", "ptAfterclassTzkRightHomework", "ptAfterclassTzFinishHomework", "ptAfterclassTzkAll"]
+  ];
+  const exactItems = exactGroups.flatMap(([type, rightKey, finishKey, allKey]) => {
+    if (record?.[allKey] === undefined) return [];
+    return [{
+      type,
+      submitted: Number(record[finishKey] || 0),
+      total: Number(record[allKey] || 0),
+      passed: Number(record[rightKey] || 0)
+    }];
+  });
+  const roots = [];
+  for (const [key, value] of Object.entries(record || {})) {
+    if (/afterclass(?:tz|tzk)|extension|expand|课后拓展/i.test(key)) roots.push([key, value]);
+  }
+  const items = [...exactItems, ...roots.flatMap(([key, value]) => homeworkFromValue(value, normalizeText(key)))];
+  const unique = new Map();
+  for (const item of items) {
+    const signature = `${item.type}:${item.submitted}:${item.total}:${item.passed}`;
+    if (!unique.has(signature)) unique.set(signature, item);
+  }
+  return [...unique.values()];
+}
+
+function normalizeAttendance(raw) {
+  const value = firstValue(raw, [
+    "attendanceTime", "attendTime", "firstEnterTime", "enterTime", "joinTime", "classInTime",
+    "attendanceAt", "attendDuration", "attendance"
+  ]);
+  if (raw?.attendFlag === 1 || raw?.attendFlag === "1") {
+    return normalizeText(firstValue(raw, ["studentInClassTimeStr", "studentJoinTime", "joinClassTime"])) || "已到课";
+  }
+  if (raw?.attendFlag === 0 || raw?.attendFlag === "0") return "";
+  if (value === true || value === 1 || value === "1") return "已到课";
+  if (value === false || value === 0 || value === "0") return "";
+  return normalizeText(value);
+}
+
+export function normalizeStudentRecord(raw) {
+  const adjustmentState = raw?.adjustmentState;
+  const transferStatus = adjustmentState === 0 || adjustmentState === "0"
+    ? "正常"
+    : adjustmentState === 1 || adjustmentState === "1"
+      ? "调课"
+      : adjustmentState !== undefined && adjustmentState !== null
+        ? "已完成"
+        : normalizeText(firstValue(raw, ["transferStatusName", "adjustStatusName", "transferStatus", "adjustStatus", "classChangeStatus"]));
+  return {
+    studentId: normalizeId(firstValue(raw, ["studentId", "studentUserId", "studentUid", "userId", "accountId", "userCode", "id"])),
+    studentName: normalizeText(firstValue(raw, ["studentName", "userName", "realName", "studentNickName", "name"])),
+    currentClassId: normalizeText(firstValue(raw, ["classCode", "className", "currentClassCode", "currentClassName", "attendClassName", "classId"])),
+    currentClassTime: normalizeText(firstValue(raw, ["classTime", "courseTime", "scheduleTime", "classSchedule", "attendTimeSlot"])),
+    transferStatus,
+    attendanceAt: normalizeAttendance(raw),
+    homework: extractHomework(raw),
+    extensions: extractExtensions(raw),
+    raw
+  };
+}
+
+function extractTotal(payload, rowCount) {
+  let total = rowCount;
+  walkObjects(payload, (value) => {
+    if (Array.isArray(value)) return;
+    for (const [key, child] of Object.entries(value)) {
+      if (/^(total|totalcount|recordcount)$/i.test(key) && Number.isFinite(Number(child))) total = Math.max(total, Number(child));
+    }
+  }, 4);
+  return total;
+}
+
+function extractPageSize(payload, rowCount) {
+  let pageSize = 0;
+  walkObjects(payload, (value) => {
+    if (pageSize || Array.isArray(value)) return;
+    for (const [key, child] of Object.entries(value)) {
+      if (/^(pagesize|size|limit)$/i.test(key) && Number.isFinite(Number(child)) && Number(child) > 0) {
+        pageSize = Number(child);
+        break;
+      }
+    }
+  }, 4);
+  return pageSize || rowCount;
+}
+
+export function extractStudentPage(payload) {
+  const candidate = extractStudentArray(payload);
+  const records = candidate.values.map(normalizeStudentRecord).filter((record) => record.studentId);
+  return { records, total: extractTotal(payload, records.length), pageSize: extractPageSize(payload, records.length) };
+}
+
+export function findLessonEndedAt(payload, records = []) {
+  for (const record of records) {
+    const value = firstDate(record.raw || record, ["lessonEndTime", "classEndTime", "courseEndTime", "endedAt", "endTime"]);
+    if (value) return value;
+  }
+  let result = "";
+  walkObjects(payload, (value) => {
+    if (result || Array.isArray(value)) return;
+    result = firstDate(value, ["lessonEndTime", "classEndTime", "courseEndTime", "endedAt"]);
+  }, 4);
+  return result;
+}
+
+export function findDataUpdatedAt(payload) {
+  let result = "";
+  walkObjects(payload, (value) => {
+    if (result || Array.isArray(value)) return;
+    for (const [key, child] of Object.entries(value)) {
+      if (/^(dataupdatetime|updatedataat|lastupdatetime|updatetime)$/i.test(key) && parseDate(child)) {
+        result = child;
+        break;
+      }
+    }
+  }, 5);
+  return result;
+}
+
+function teacherIdFromState(state) {
+  for (const capture of Object.values(state.captures || {})) {
+    try {
+      const id = new URL(capture.url).searchParams.get("internalTeacherId");
+      if (id) return id;
+    } catch {
+      // Continue searching other captured requests.
+    }
+  }
+  for (const entry of performance.getEntriesByType?.("resource") || []) {
+    try {
+      const id = new URL(entry.name).searchParams.get("internalTeacherId");
+      if (id) return id;
+    } catch {
+      // Ignore non-URL performance entries.
+    }
+  }
+  return "";
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let cursor = 0;
+  async function run() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+  return results;
+}
+
+async function fetchStudentPages(bridge, teacherId, camp, lesson) {
+  const pageSize = 200;
+  const first = await bridge.replay("teachSearch", {
+    teacherId,
+    campId: camp.id,
+    lesson: lesson.requestFields,
+    page: 1,
+    pageSize,
+    allClasses: true
+  });
+  const firstPage = extractStudentPage(first.data);
+  const pages = Math.min(20, Math.ceil(firstPage.total / Math.max(1, firstPage.pageSize || firstPage.records.length || pageSize)));
+  const records = [...firstPage.records];
+  for (let page = 2; page <= pages; page += 1) {
+    const response = await bridge.replay("teachSearch", {
+      teacherId,
+      campId: camp.id,
+      lesson: lesson.requestFields,
+      page,
+      pageSize,
+      allClasses: true
+    });
+    records.push(...extractStudentPage(response.data).records);
+  }
+  let totalData = null;
+  try {
+    totalData = (await bridge.replay("teachTotal", {
+      teacherId,
+      campId: camp.id,
+      lesson: lesson.requestFields,
+      allClasses: true
+    })).data;
+  } catch {
+    totalData = null;
+  }
+  const dataUpdatedAt = findDataUpdatedAt(totalData) || findDataUpdatedAt(first.data);
+  return {
+    records,
+    dataUpdatedAt,
+    lessonEndedAt: findLessonEndedAt(first.data, firstPage.records) || inferLessonEndedAt(dataUpdatedAt)
+  };
+}
+
+async function fetchLearningSituation(bridge, teacherId, camp) {
+  const pageSize = 200;
+  const first = await bridge.replay("learningSituation", {
+    teacherId,
+    campId: camp.id,
+    page: 1,
+    pageSize,
+    allClasses: true
+  });
+  const firstPage = extractStudentPage(first.data);
+  const records = [...firstPage.records];
+  const pages = Math.min(20, Math.ceil(firstPage.total / Math.max(1, firstPage.pageSize || firstPage.records.length || pageSize)));
+  for (let page = 2; page <= pages; page += 1) {
+    const response = await bridge.replay("learningSituation", {
+      teacherId,
+      campId: camp.id,
+      page,
+      pageSize,
+      allClasses: true
+    });
+    records.push(...extractStudentPage(response.data).records);
+  }
+  return records;
+}
+
+export async function collectAllIssues({ roster = [], overrides, onProgress = () => {}, now = new Date() }) {
+  const bridge = new BridgeClient();
+  const state = await bridge.state();
+  const teacherId = teacherIdFromState(state);
+  if (!teacherId) throw new Error("无法识别当前教师，请确认已登录并刷新 CRM 工作台");
+  if (!state.templates?.lessons || !state.templates?.teachSearch) {
+    throw new Error("CRM 查询尚未初始化，请刷新工作台，等待表格出现后再打开学情异常助手");
+  }
+
+  const campCapture = state.captures?.campInfo || state.captures?.courseCampInfo;
+  if (!campCapture?.data) throw new Error("未读取到在读营期，请刷新 CRM 工作台后重试");
+  const camps = extractCamps(campCapture.data);
+  if (!camps.length) throw new Error("当前账号没有可识别的在读营期");
+
+  const jobs = [];
+  const automaticRoster = [];
+  let lessonsWithoutTime = 0;
+  const setupWarnings = [];
+  for (const camp of camps) {
+    let schedules = new Map();
+    try {
+      const courseInfo = await bridge.replay("courseCampInfo", { teacherId, campId: camp.id, allClasses: true });
+      schedules = extractClassSchedules(courseInfo.data);
+    } catch (error) {
+      setupWarnings.push(`${camp.name}：未读取到班级时段（${error.message}）`);
+    }
+    try {
+      const homeRecords = await fetchLearningSituation(bridge, teacherId, camp);
+      for (const record of homeRecords) {
+        automaticRoster.push({
+          campId: camp.id,
+          studentId: record.studentId,
+          studentName: record.studentName,
+          homeClassId: record.currentClassId,
+          homeClassTime: schedules.get(record.currentClassId) || ""
+        });
+      }
+    } catch (error) {
+      setupWarnings.push(`${camp.name}：自动常驻班级读取失败（${error.message}）`);
+    }
+    const response = await bridge.replay("lessons", { teacherId, campId: camp.id, allClasses: true });
+    const lessons = extractLessons(response.data);
+    for (const lesson of lessons) {
+      const endedAt = parseDate(lesson.endedAt);
+      if (!endedAt || endedAt <= now) jobs.push({ camp, lesson, schedules });
+    }
+  }
+  if (!automaticRoster.length && !roster.length) {
+    throw new Error("无法从用户学情读取常驻班级，请刷新 CRM 页面后重试；也可以导入修正名单作为备用");
+  }
+  const manualByStudent = new Map(roster.map((record) => [normalizeId(record.studentId), record]));
+  const resolvedRoster = automaticRoster.map((record) => ({ ...record, ...(manualByStudent.get(record.studentId) || {}) }));
+  const automaticIds = new Set(automaticRoster.map((record) => record.studentId));
+  for (const record of roster) {
+    if (!automaticIds.has(normalizeId(record.studentId))) resolvedRoster.push(record);
+  }
+  if (!jobs.length) throw new Error("当前在读营期没有已结束课次");
+
+  const allIssues = [];
+  const allStudentIds = new Set();
+  const warnings = [...setupWarnings];
+  let jobFailures = 0;
+  let completed = 0;
+  await mapWithConcurrency(jobs, 3, async ({ camp, lesson, schedules }) => {
+    try {
+      const page = await fetchStudentPages(bridge, teacherId, camp, lesson);
+      page.records.forEach((record) => {
+        if (!record.currentClassTime) record.currentClassTime = schedules.get(record.currentClassId) || "";
+      });
+      page.records.forEach((record) => allStudentIds.add(record.studentId));
+      const effectiveLesson = { ...lesson, endedAt: lesson.endedAt || page.lessonEndedAt || "" };
+      if (!parseDate(effectiveLesson.endedAt)) lessonsWithoutTime += 1;
+      allIssues.push(...buildIssues({
+        records: page.records,
+        roster: resolvedRoster,
+        overrides,
+        camp,
+        lesson: effectiveLesson,
+        dataUpdatedAt: page.dataUpdatedAt,
+        now
+      }));
+    } catch (error) {
+      jobFailures += 1;
+      warnings.push(`${camp.name} / ${lesson.name}：${error.message}`);
+    } finally {
+      completed += 1;
+      onProgress({ completed, total: jobs.length, label: `${camp.name} / ${lesson.name}` });
+    }
+  });
+
+  const unmatchedRoster = roster.filter((record) => !allStudentIds.has(normalizeId(record.studentId))).map((record) => record.studentId);
+  if (lessonsWithoutTime) warnings.push(`${lessonsWithoutTime} 个课次缺少上课时间，仅判定班级差异，不判定旷课或作业`);
+  if (unmatchedRoster.length) warnings.push(`${unmatchedRoster.length} 名名单学员未在本次 CRM 数据中匹配到`);
+  if (jobFailures === jobs.length && !allIssues.length) throw new Error("所有课次查询均失败，请稍后重试或联系扩展维护人员");
+
+  const uniqueIssues = [...new Map(allIssues.map((issue) => [issue.id, issue])).values()];
+  return {
+    teacherId,
+    issues: uniqueIssues,
+    meta: {
+      campCount: camps.length,
+      lessonCount: jobs.length,
+      rosterCount: resolvedRoster.length,
+      automaticRosterCount: automaticRoster.length,
+      manualRosterCount: roster.length,
+      matchedStudentCount: allStudentIds.size,
+      unmatchedRoster,
+      warnings,
+      refreshedAt: new Date().toISOString()
+    }
+  };
+}
