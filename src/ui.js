@@ -49,8 +49,10 @@ function optionMarkup(options, selected, placeholder) {
 }
 
 export class AlertUI {
-  constructor(callbacks) {
+  constructor(callbacks, { triggerPosition = null } = {}) {
     this.callbacks = callbacks;
+    this.triggerPosition = triggerPosition;
+    this.ignoreTriggerClickUntil = 0;
     this.state = {
       open: false,
       loading: false,
@@ -93,7 +95,15 @@ export class AlertUI {
       </aside>`;
     document.body.appendChild(root);
     this.root = root;
-    root.querySelector(".crm-alert-trigger").addEventListener("click", () => this.callbacks.onOpen());
+    const trigger = root.querySelector(".crm-alert-trigger");
+    this.setupTriggerDrag(trigger);
+    trigger.addEventListener("click", (event) => {
+      if (performance.now() < this.ignoreTriggerClickUntil) {
+        event.preventDefault();
+        return;
+      }
+      this.callbacks.onOpen();
+    });
     root.querySelector(".crm-alert-backdrop").addEventListener("click", () => this.close());
     root.querySelector('[data-action="close"]').addEventListener("click", () => this.close());
     root.querySelector('[data-action="refresh"]').addEventListener("click", () => this.callbacks.onRefresh(true));
@@ -104,6 +114,71 @@ export class AlertUI {
       if (event.key === "Escape" && this.state.open) this.close();
     });
     this.render();
+  }
+
+  setupTriggerDrag(trigger) {
+    let drag = null;
+
+    const finishDrag = (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      if (drag.moved) {
+        event.preventDefault();
+        this.ignoreTriggerClickUntil = performance.now() + 300;
+        this.callbacks.onTriggerPositionChange?.(this.triggerPosition);
+      }
+      trigger.classList.remove("is-dragging");
+      trigger.removeAttribute("aria-grabbed");
+      if (trigger.hasPointerCapture?.(event.pointerId)) trigger.releasePointerCapture(event.pointerId);
+      drag = null;
+    };
+
+    trigger.addEventListener("pointerdown", (event) => {
+      if (!event.isPrimary || event.button !== 0) return;
+      const rect = trigger.getBoundingClientRect();
+      drag = {
+        pointerId: event.pointerId,
+        pointerX: event.clientX,
+        pointerY: event.clientY,
+        startX: rect.left,
+        startY: rect.top,
+        moved: false
+      };
+      trigger.setPointerCapture?.(event.pointerId);
+    });
+
+    trigger.addEventListener("pointermove", (event) => {
+      if (!drag || event.pointerId !== drag.pointerId) return;
+      const deltaX = event.clientX - drag.pointerX;
+      const deltaY = event.clientY - drag.pointerY;
+      if (!drag.moved && Math.hypot(deltaX, deltaY) < 4) return;
+      drag.moved = true;
+      event.preventDefault();
+      trigger.classList.add("is-dragging");
+      trigger.setAttribute("aria-grabbed", "true");
+      this.setTriggerPosition(trigger, { x: drag.startX + deltaX, y: drag.startY + deltaY });
+    });
+
+    trigger.addEventListener("pointerup", finishDrag);
+    trigger.addEventListener("pointercancel", finishDrag);
+
+    requestAnimationFrame(() => {
+      if (this.triggerPosition) this.setTriggerPosition(trigger, this.triggerPosition);
+    });
+    window.addEventListener("resize", () => {
+      if (this.triggerPosition) this.setTriggerPosition(trigger, this.triggerPosition);
+    });
+  }
+
+  setTriggerPosition(trigger, position) {
+    const rect = trigger.getBoundingClientRect();
+    const maxX = Math.max(0, window.innerWidth - rect.width);
+    const maxY = Math.max(0, window.innerHeight - rect.height);
+    const x = Math.min(maxX, Math.max(0, Number(position.x) || 0));
+    const y = Math.min(maxY, Math.max(0, Number(position.y) || 0));
+    this.triggerPosition = { x, y };
+    trigger.style.right = "auto";
+    trigger.style.left = `${x}px`;
+    trigger.style.top = `${y}px`;
   }
 
   open() {
