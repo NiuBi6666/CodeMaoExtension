@@ -3,7 +3,8 @@ import { CACHE_SCHEMA_VERSION, CACHE_TTL_MS, normalizeId, overrideKey } from "./
 const KEYS = {
   roster: "crmLearningAlert.roster",
   overrides: "crmLearningAlert.overrides",
-  cache: "crmLearningAlert.cache"
+  cache: "crmLearningAlert.cache",
+  triggerPosition: "crmLearningAlert.triggerPosition"
 };
 
 function getStorage() {
@@ -18,6 +19,21 @@ export async function loadRoster() {
 
 export async function saveRoster(records) {
   await getStorage().set({ [KEYS.roster]: records || [] });
+}
+
+export async function loadTriggerPosition() {
+  const data = await getStorage().get(KEYS.triggerPosition);
+  const position = data[KEYS.triggerPosition];
+  const x = Number(position?.x);
+  const y = Number(position?.y);
+  return Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+}
+
+export async function saveTriggerPosition(position) {
+  const x = Number(position?.x);
+  const y = Number(position?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  await getStorage().set({ [KEYS.triggerPosition]: { x, y } });
 }
 
 export async function loadOverrides() {
