@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CRM作业助手测试</title>
+  <style>
+    body { margin: 0; padding: 32px; background: #f4f6f8; color: #20242a; font: 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; }
+    main { max-width: 920px; margin: 0 auto; background: #fff; border: 1px solid #dfe3e8; padding: 24px; }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    p { margin: 0 0 18px; color: #69717d; }
+    ol { margin: 0; padding-left: 24px; }
+    li { padding: 6px 8px; border-bottom: 1px solid #edf0f2; }
+    .pass { color: #08775b; }
+    .fail { color: #b42335; background: #fff1f3; }
+    #summary { margin: 18px 0; padding: 10px 12px; border-left: 4px solid #1769e0; background: #edf5ff; color: #194b85; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>CRM作业助手测试</h1>
+    <p>规则、名单导入和 CRM 响应适配器的浏览器测试。</p>
+    <div id="summary">正在运行…</div>
+    <ol id="results"></ol>
+  </main>
+  <script type="module" src="./tests.js"></script>
+</body>
+</html>

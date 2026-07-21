@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "CRM作业助手",
+  "version": "0.9.1",
+  "description": "在深空 CRM 中按营期、班级和课程查看学员作业明细与异常统计。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://sk-crm.codemao.cn/*",
+    "https://api-live-class-crm.codemao.cn/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://sk-crm.codemao.cn/*"],
+      "js": ["src/page-bridge.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://sk-crm.codemao.cn/*"],
+      "js": ["src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/*.js"],
+      "matches": ["https://sk-crm.codemao.cn/*"]
+    }
+  ],
+  "action": {
+    "default_title": "CRM作业助手",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  }
+}
