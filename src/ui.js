@@ -598,9 +598,8 @@ export class AlertUI {
     const target = this.root.querySelector(".crm-alert-notes");
     const warnings = this.state.meta?.warnings || [];
     const refreshedAt = this.state.meta?.refreshedAt;
-    const cacheLabel = this.state.meta?.fromCache ? "15 分钟缓存" : "CRM 实时查询";
     target.innerHTML = `
       ${warnings.length ? `<details><summary>${warnings.length} 条数据提示</summary><ul>${warnings.slice(0, 20).map((warning) => `<li>${escapeHtml(warning)}</li>`).join("")}</ul></details>` : ""}
-      ${refreshedAt ? `<p>最后刷新：${escapeHtml(formatDate(refreshedAt))} · ${cacheLabel}</p>` : ""}`;
+      ${refreshedAt ? `<p>最后刷新：${escapeHtml(formatDate(refreshedAt))} · CRM 实时查询</p>` : ""}`;
   }
 }

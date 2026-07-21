@@ -1,11 +1,8 @@
 import { collectAllIssues, collectCategoryRows, loadCampCatalog, loadClassCatalog, loadLessonCatalog } from "./crm-adapter.js";
 import {
-  clearCache,
   clearHomeClassOverride,
-  loadCache,
   loadOverrides,
   loadRoster,
-  saveCache,
   setHomeClassOverride
 } from "./storage.js";
 import { AlertUI } from "./ui.js";
@@ -21,12 +18,6 @@ function normalizeLessonIds(values) {
   return [...new Set(source.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
-function sameLessonIds(left, right) {
-  const leftIds = normalizeLessonIds(left).sort();
-  const rightIds = normalizeLessonIds(right).sort();
-  return leftIds.length === rightIds.length && leftIds.every((value, index) => value === rightIds[index]);
-}
-
 export async function startApp() {
   let roster = await loadRoster();
   let overrides = await loadOverrides();
@@ -36,7 +27,6 @@ export async function startApp() {
   let baseMeta = {};
   let activeFilterType = "all";
   let loadingPromise = null;
-  let teacherId = "";
   let catalog = { camps: [], classes: [], lessons: [] };
   let selection = { campId: "", classId: "", lessonIds: [] };
 
@@ -45,7 +35,7 @@ export async function startApp() {
       ui.open();
       if (!catalog.camps.length && !loadingPromise) await loadCamps();
     },
-    onRefresh: () => refresh(true),
+    onRefresh: () => refresh(),
     onCampChange: (campId) => {
       activeFilterType = "all";
       return loadClasses(campId);
@@ -56,7 +46,7 @@ export async function startApp() {
     },
     onLessonChange: (lessonIds) => {
       activeFilterType = "all";
-      return loadSelectedClass(selection.classId, false, lessonIds);
+      return loadSelectedClass(selection.classId, lessonIds);
     },
     onFilterChange: (type) => loadCategory(type),
     onPromote: promoteHomeClass,
@@ -71,7 +61,6 @@ export async function startApp() {
       ui.update({ loading: true, progress: "正在加载营期…", error: "" });
       try {
         const result = await loadCampCatalog();
-        teacherId = result.teacherId;
         catalog = { camps: result.camps, classes: [], lessons: [] };
         selection = { campId: "", classId: "", lessonIds: [] };
         issues = [];
@@ -103,7 +92,6 @@ export async function startApp() {
       ui.update({ loading: true, progress: "正在加载该营期的班级…", error: "" });
       try {
         const result = await loadClassCatalog(nextCampId);
-        teacherId = result.teacherId;
         catalog = { ...catalog, classes: result.classes, lessons: [] };
         ui.update({ catalog, selection, loading: false, progress: "", error: "" });
       } catch (error) {
@@ -115,7 +103,7 @@ export async function startApp() {
     return loadingPromise;
   }
 
-  async function loadSelectedClass(classId, force = false, lessonIds = []) {
+  async function loadSelectedClass(classId, lessonIds = []) {
     if (loadingPromise) return loadingPromise;
     const nextClassId = String(classId || "").trim();
     const nextLessonIds = normalizeLessonIds(lessonIds);
@@ -133,21 +121,6 @@ export async function startApp() {
         error: ""
       });
       try {
-        if (!force && teacherId) {
-          const cached = await loadCache(teacherId);
-          const cachedLessonIds = cached?.meta?.selectedLessonIds || [cached?.meta?.selectedLessonId || cached?.meta?.defaultLessonId || ""];
-          const lessonMatches = sameLessonIds(cachedLessonIds, nextLessonIds);
-          if (cached && cached.meta?.selectedCampId === selection.campId && cached.meta?.selectedClassId === nextClassId && lessonMatches) {
-            issues = cached.issues || [];
-            meta = { ...(cached.meta || {}), fromCache: true };
-            baseIssues = issues;
-            baseMeta = meta;
-            catalog = { ...catalog, lessons: meta.lessonOptions || [] };
-            selection = { ...selection, lessonIds: normalizeLessonIds(meta.selectedLessonIds || [meta.selectedLessonId || meta.defaultLessonId]) };
-            ui.update({ issues, meta, catalog, selection, roster, summaryIssues: baseIssues, loading: false, progress: "", error: "" });
-            return;
-          }
-        }
         const result = await collectAllIssues({
           roster,
           overrides,
@@ -156,14 +129,12 @@ export async function startApp() {
           lessonIds: nextLessonIds,
           onProgress: ({ label }) => ui.update({ progress: `正在读取：${label}` })
         });
-        teacherId = result.teacherId;
         issues = result.issues;
-        meta = { ...result.meta, fromCache: false };
+        meta = result.meta;
         baseIssues = issues;
         baseMeta = meta;
         catalog = { ...catalog, lessons: meta.lessonOptions || [] };
         selection = { ...selection, lessonIds: normalizeLessonIds(meta.selectedLessonIds || [meta.selectedLessonId || meta.defaultLessonId]) };
-        await saveCache(result.teacherId, issues, meta);
         ui.update({ issues, meta, catalog, selection, roster, summaryIssues: baseIssues, loading: false, progress: "", error: "" });
       } catch (error) {
         ui.update({ loading: false, progress: "", error: error.message || "班级数据加载失败" });
@@ -189,7 +160,6 @@ export async function startApp() {
       ui.update({ loading: true, progress: "正在加载全部课节…", error: "" });
       try {
         const result = await loadLessonCatalog(selection.campId);
-        teacherId = result.teacherId;
         catalog = { ...catalog, lessons: result.lessons };
         ui.update({ catalog, selection, loading: false, progress: "", error: "" });
       } catch (error) {
@@ -226,9 +196,8 @@ export async function startApp() {
           quicklyOperate,
           categoryType: activeFilterType
         });
-        teacherId = result.teacherId;
         issues = result.issues;
-        meta = { ...baseMeta, ...result.meta, fromCache: false, lessonOptions: catalog.lessons };
+        meta = { ...baseMeta, ...result.meta, lessonOptions: catalog.lessons };
         ui.update({ issues, meta, loading: false, progress: "", error: "" });
       } catch (error) {
         issues = [];
@@ -240,9 +209,9 @@ export async function startApp() {
     return loadingPromise;
   }
 
-  async function refresh(force = false) {
+  async function refresh() {
     if (CATEGORY_OPERATIONS[activeFilterType]) return loadCategory(activeFilterType);
-    if (selection.classId && selection.lessonIds.length) return loadSelectedClass(selection.classId, force, selection.lessonIds);
+    if (selection.classId && selection.lessonIds.length) return loadSelectedClass(selection.classId, selection.lessonIds);
     if (selection.classId) return loadLessons(selection.classId);
     if (selection.campId) return loadClasses(selection.campId);
     return loadCamps();
@@ -256,17 +225,15 @@ export async function startApp() {
       issue.currentClassTime,
       issue.lessonEndedAt
     );
-    await clearCache();
     issues = [];
     ui.update({ issues, error: "", progress: "常驻班级已更新，正在重新判定…" });
-    await refresh(true);
+    await refresh();
   }
 
   async function restoreHomeClass(issue) {
     overrides = await clearHomeClassOverride(issue.campId, issue.studentId);
-    await clearCache();
     issues = [];
     ui.update({ issues, error: "", progress: "已恢复初始班级，正在重新判定…" });
-    await refresh(true);
+    await refresh();
   }
 }

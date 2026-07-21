@@ -1,7 +1,4 @@
 export const SHANGHAI_TIME_ZONE = "Asia/Shanghai";
-export const CACHE_TTL_MS = 15 * 60 * 1000;
-export const CACHE_SCHEMA_VERSION = 13;
-
 export function normalizeId(value) {
   return String(value ?? "").trim();
 }

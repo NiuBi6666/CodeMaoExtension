@@ -1,9 +1,8 @@
-import { CACHE_SCHEMA_VERSION, CACHE_TTL_MS, normalizeId, overrideKey } from "./core.js";
+import { overrideKey } from "./core.js";
 
 const KEYS = {
   roster: "crmLearningAlert.roster",
   overrides: "crmLearningAlert.overrides",
-  cache: "crmLearningAlert.cache",
   triggerPosition: "crmLearningAlert.triggerPosition"
 };
 
@@ -58,29 +57,4 @@ export async function clearHomeClassOverride(campId, studentId) {
   delete overrides[overrideKey(campId, studentId)];
   await getStorage().set({ [KEYS.overrides]: overrides });
   return overrides;
-}
-
-export async function loadCache(teacherId, { allowStale = false } = {}) {
-  const data = await getStorage().get(KEYS.cache);
-  const cache = data[KEYS.cache];
-  if (!cache || normalizeId(cache.teacherId) !== normalizeId(teacherId)) return null;
-  if (cache.schemaVersion !== CACHE_SCHEMA_VERSION) return null;
-  if (!allowStale && Date.now() - Number(cache.savedAt || 0) > CACHE_TTL_MS) return null;
-  return cache;
-}
-
-export async function saveCache(teacherId, issues, meta = {}) {
-  const cache = {
-    schemaVersion: CACHE_SCHEMA_VERSION,
-    teacherId: normalizeId(teacherId),
-    issues: Array.isArray(issues) ? issues : [],
-    meta,
-    savedAt: Date.now()
-  };
-  await getStorage().set({ [KEYS.cache]: cache });
-  return cache;
-}
-
-export async function clearCache() {
-  await getStorage().remove(KEYS.cache);
 }
