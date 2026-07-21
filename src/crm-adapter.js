@@ -2,6 +2,8 @@ import { buildIssues, hasCategoryWorkIssue, inferLessonEndedAt, issueMonthKey, n
 
 const CHANNEL = "crm-learning-alert:v1";
 const REQUEST_TIMEOUT_MS = 20000;
+const LESSON_REQUEST_CONCURRENCY = 5;
+const PAGE_REQUEST_CONCURRENCY = 4;
 
 function walkObjects(root, visitor, maxDepth = 6) {
   const queue = [{ value: root, depth: 0, parent: null, key: "" }];
@@ -86,6 +88,13 @@ export class BridgeClient {
   replay(kind, params) {
     return this.request("REPLAY_REQUEST", { kind, params });
   }
+}
+
+let sharedBridge = null;
+
+function getBridge() {
+  if (!sharedBridge) sharedBridge = new BridgeClient();
+  return sharedBridge;
 }
 
 function entityArrays(root) {
@@ -528,7 +537,7 @@ function teacherIdFromState(state) {
 }
 
 async function loadCrmContext() {
-  const bridge = new BridgeClient();
+  const bridge = getBridge();
   const state = await bridge.state();
   const teacherId = teacherIdFromState(state);
   if (!teacherId) throw new Error("无法识别当前教师，请确认已登录并刷新 CRM 工作台");
@@ -695,33 +704,33 @@ async function fetchStudentPages(bridge, teacherId, camp, lesson, classId = "", 
   const firstPage = extractStudentPage(first.data);
   const pages = Math.min(20, Math.ceil(firstPage.total / Math.max(1, firstPage.pageSize || firstPage.records.length || pageSize)));
   const records = [...firstPage.records];
-  for (let page = 2; page <= pages; page += 1) {
-    const response = await bridge.replay("teachSearch", {
-      teacherId,
-      campId: camp.id,
-      classId,
-      lesson: lesson.requestFields,
-      quicklyOperate,
-      page,
-      pageSize,
-      allClasses: !classId
-    });
-    records.push(...extractStudentPage(response.data).records);
-  }
-  let totalData = null;
-  if (includeTotal) {
-    try {
-      totalData = (await bridge.replay("teachTotal", {
+  const remainingPages = Array.from({ length: Math.max(0, pages - 1) }, (_, index) => index + 2);
+  const [additionalRecords, totalResponse] = await Promise.all([
+    mapWithConcurrency(remainingPages, PAGE_REQUEST_CONCURRENCY, async (page) => {
+      const response = await bridge.replay("teachSearch", {
         teacherId,
         campId: camp.id,
         classId,
         lesson: lesson.requestFields,
+        quicklyOperate,
+        page,
+        pageSize,
         allClasses: !classId
-      })).data;
-    } catch {
-      totalData = null;
-    }
-  }
+      });
+      return extractStudentPage(response.data).records;
+    }),
+    includeTotal
+      ? bridge.replay("teachTotal", {
+          teacherId,
+          campId: camp.id,
+          classId,
+          lesson: lesson.requestFields,
+          allClasses: !classId
+        }).catch(() => null)
+      : Promise.resolve(null)
+  ]);
+  records.push(...additionalRecords.flat());
+  const totalData = totalResponse?.data || null;
   const dataUpdatedAt = findDataUpdatedAt(totalData) || findDataUpdatedAt(first.data);
   return {
     records,
@@ -749,7 +758,7 @@ export async function collectCategoryRows({ campId = "", classId = "", lessonOpt
   if (!options.length) throw new Error("请至少选择一节课");
   const warnings = [];
   let failures = 0;
-  const resultSets = await mapWithConcurrency(options, 3, async (option) => {
+  const resultSets = await mapWithConcurrency(options, LESSON_REQUEST_CONCURRENCY, async (option) => {
     const lessonId = normalizeId(option?.value || option?.id);
     const lessonName = normalizeText(option?.label || option?.name) || lessonId;
     const lesson = {
@@ -827,7 +836,8 @@ async function fetchLearningSituation(bridge, teacherId, camp) {
   const firstPage = extractStudentPage(first.data);
   const records = [...firstPage.records];
   const pages = Math.min(20, Math.ceil(firstPage.total / Math.max(1, firstPage.pageSize || firstPage.records.length || pageSize)));
-  for (let page = 2; page <= pages; page += 1) {
+  const remainingPages = Array.from({ length: Math.max(0, pages - 1) }, (_, index) => index + 2);
+  const additionalRecords = await mapWithConcurrency(remainingPages, PAGE_REQUEST_CONCURRENCY, async (page) => {
     const response = await bridge.replay("learningSituation", {
       teacherId,
       campId: camp.id,
@@ -835,8 +845,9 @@ async function fetchLearningSituation(bridge, teacherId, camp) {
       pageSize,
       allClasses: true
     });
-    records.push(...extractStudentPage(response.data).records);
-  }
+    return extractStudentPage(response.data).records;
+  });
+  records.push(...additionalRecords.flat());
   return records;
 }
 
@@ -859,21 +870,24 @@ export async function collectAllIssues({ roster = [], overrides, campId = "", cl
   const setupWarnings = [];
   let selectedClass = null;
   for (const camp of camps) {
+    const [courseInfoResult, homeRecordsResult, lessonsResult] = await Promise.allSettled([
+      bridge.replay("courseCampInfo", { teacherId, campId: camp.id, allClasses: true }),
+      fetchLearningSituation(bridge, teacherId, camp),
+      bridge.replay("lessons", { teacherId, campId: camp.id, allClasses: true })
+    ]);
     let schedules = new Map();
-    try {
-      const courseInfo = await bridge.replay("courseCampInfo", { teacherId, campId: camp.id, allClasses: true });
-      schedules = extractClassSchedules(courseInfo.data);
-      const classes = extractClasses(courseInfo.data);
+    if (courseInfoResult.status === "fulfilled") {
+      schedules = extractClassSchedules(courseInfoResult.value.data);
+      const classes = extractClasses(courseInfoResult.value.data);
       selectedClass = classes.find((item) => item.id === selectedClassId || item.name === selectedClassId) || null;
-    } catch (error) {
-      setupWarnings.push(`${camp.name}：未读取到班级时段（${error.message}）`);
+    } else {
+      setupWarnings.push(`${camp.name}：未读取到班级时段（${courseInfoResult.reason?.message || "查询失败"}）`);
     }
     if (!selectedClass) {
       selectedClass = { id: selectedClassId, name: selectedClassId, time: schedules.get(selectedClassId) || "", aliases: [selectedClassId] };
     }
-    try {
-      const homeRecords = await fetchLearningSituation(bridge, teacherId, camp);
-      for (const record of homeRecords) {
+    if (homeRecordsResult.status === "fulfilled") {
+      for (const record of homeRecordsResult.value) {
         automaticRoster.push({
           campId: camp.id,
           studentId: record.studentId,
@@ -882,11 +896,11 @@ export async function collectAllIssues({ roster = [], overrides, campId = "", cl
           homeClassTime: schedules.get(record.currentClassId) || ""
         });
       }
-    } catch (error) {
-      setupWarnings.push(`${camp.name}：自动常驻班级读取失败（${error.message}）`);
+    } else {
+      setupWarnings.push(`${camp.name}：自动常驻班级读取失败（${homeRecordsResult.reason?.message || "查询失败"}）`);
     }
-    const response = await bridge.replay("lessons", { teacherId, campId: camp.id, allClasses: true });
-    const lessons = extractLessons(response.data);
+    if (lessonsResult.status === "rejected") throw lessonsResult.reason;
+    const lessons = extractLessons(lessonsResult.value.data);
     for (const lesson of lessons) {
       lessonJobs.push({ camp, lesson, schedules });
     }
@@ -937,7 +951,7 @@ export async function collectAllIssues({ roster = [], overrides, campId = "", cl
   const warnings = [...setupWarnings];
   let jobFailures = 0;
   let completed = 0;
-  await mapWithConcurrency(jobs, 3, async ({ camp, lesson, schedules }) => {
+  await mapWithConcurrency(jobs, LESSON_REQUEST_CONCURRENCY, async ({ camp, lesson, schedules }) => {
     try {
       const page = await fetchStudentPages(bridge, teacherId, camp, lesson, selectedClass.id);
       const acceptedClassIds = new Set([selectedClass.id, selectedClass.name, ...(selectedClass.aliases || [])].map(normalizeText).filter(Boolean));
