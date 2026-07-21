@@ -167,7 +167,7 @@ export class AlertUI {
     trigger.addEventListener("click", () => this.callbacks.onOpen());
     root.querySelector(".crm-alert-backdrop").addEventListener("click", () => this.close());
     root.querySelector('[data-action="close"]').addEventListener("click", () => this.close());
-    root.querySelector('[data-action="refresh"]').addEventListener("click", () => this.callbacks.onRefresh(true));
+    root.querySelector('[data-action="refresh"]').addEventListener("click", () => this.callbacks.onRefresh());
     root.addEventListener("click", (event) => this.handleClick(event));
     root.addEventListener("change", (event) => this.handleChange(event));
     root.addEventListener("input", (event) => this.handleInput(event));

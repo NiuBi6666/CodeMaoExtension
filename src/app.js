@@ -210,10 +210,21 @@ export async function startApp() {
   }
 
   async function refresh() {
-    if (CATEGORY_OPERATIONS[activeFilterType]) return loadCategory(activeFilterType);
-    if (selection.classId && selection.lessonIds.length) return loadSelectedClass(selection.classId, selection.lessonIds);
-    if (selection.classId) return loadLessons(selection.classId);
-    if (selection.campId) return loadClasses(selection.campId);
+    const preservedFilterType = activeFilterType;
+    const preservedSelection = {
+      campId: selection.campId,
+      classId: selection.classId,
+      lessonIds: normalizeLessonIds(selection.lessonIds)
+    };
+
+    if (preservedSelection.classId && preservedSelection.lessonIds.length) {
+      await loadSelectedClass(preservedSelection.classId, preservedSelection.lessonIds);
+      activeFilterType = preservedFilterType;
+      if (CATEGORY_OPERATIONS[preservedFilterType]) return loadCategory(preservedFilterType);
+      return;
+    }
+    if (preservedSelection.classId) return loadLessons(preservedSelection.classId);
+    if (preservedSelection.campId) return loadClasses(preservedSelection.campId);
     return loadCamps();
   }
 
