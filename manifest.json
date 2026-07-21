@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CRM作业助手",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "在深空 CRM 中按营期、班级和课程查看学员作业明细与异常统计。",
   "icons": {
     "16": "icons/icon16.png",

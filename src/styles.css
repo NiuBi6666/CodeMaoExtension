@@ -107,6 +107,11 @@
 }
 .crm-alert-header button:hover,
 .crm-alert-results button:hover { border-color: var(--crm-alert-blue); color: var(--crm-alert-blue); }
+.crm-alert-header button:disabled {
+  border-color: #e5e6eb;
+  color: #c9cdd4;
+  cursor: not-allowed;
+}
 .crm-alert-icon-button {
   width: 32px;
   padding: 0 !important;

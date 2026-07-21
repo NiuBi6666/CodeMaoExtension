@@ -137,6 +137,7 @@ export class AlertUI {
         <header class="crm-alert-header">
           <div><h2>作业统计</h2></div>
           <div class="crm-alert-header__actions">
+            <button type="button" data-action="reset">重置</button>
             <button type="button" data-action="refresh">刷新</button>
             <button class="crm-alert-icon-button" type="button" data-action="close" title="关闭" aria-label="关闭">×</button>
           </div>
@@ -167,6 +168,7 @@ export class AlertUI {
     trigger.addEventListener("click", () => this.callbacks.onOpen());
     root.querySelector(".crm-alert-backdrop").addEventListener("click", () => this.close());
     root.querySelector('[data-action="close"]').addEventListener("click", () => this.close());
+    root.querySelector('[data-action="reset"]').addEventListener("click", () => this.resetSearchConditions());
     root.querySelector('[data-action="refresh"]').addEventListener("click", () => this.callbacks.onRefresh());
     root.addEventListener("click", (event) => this.handleClick(event));
     root.addEventListener("change", (event) => this.handleChange(event));
@@ -225,6 +227,18 @@ export class AlertUI {
     this.root.querySelector(".crm-alert-backdrop").hidden = true;
     this.root.querySelector(".crm-alert-drawer").classList.remove("is-open");
     this.root.querySelector(".crm-alert-drawer").setAttribute("aria-hidden", "true");
+  }
+
+  resetSearchConditions() {
+    if (this.state.loading) return;
+    this.state.filters = { type: "all", query: "" };
+    this.queryDraft = "";
+    this.lessonMenuOpen = false;
+    this.lessonDraft = [];
+    this.copyFeedback = "";
+    this.exportFeedback = "";
+    this.callbacks.onReset?.();
+    this.render();
   }
 
   update(patch) {
@@ -390,6 +404,8 @@ export class AlertUI {
     loadingMask.hidden = !this.state.loading;
     loadingMask.querySelector("[data-loading-progress]").textContent = this.state.progress || "正在读取 CRM 学情数据…";
     drawer.setAttribute("aria-busy", String(this.state.loading));
+    this.root.querySelector('[data-action="reset"]').disabled = this.state.loading;
+    this.root.querySelector('[data-action="refresh"]').disabled = this.state.loading;
     if (this.state.error) {
       target.innerHTML = `<div class="crm-alert-banner crm-alert-banner--error">${escapeHtml(this.state.error)}</div>`;
     } else {

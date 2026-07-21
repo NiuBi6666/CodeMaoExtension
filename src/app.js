@@ -35,6 +35,7 @@ export async function startApp() {
       ui.open();
       if (!catalog.camps.length && !loadingPromise) await loadCamps();
     },
+    onReset: () => resetSearchConditions(),
     onRefresh: () => refresh(),
     onCampChange: (campId) => {
       activeFilterType = "all";
@@ -226,6 +227,18 @@ export async function startApp() {
     if (preservedSelection.classId) return loadLessons(preservedSelection.classId);
     if (preservedSelection.campId) return loadClasses(preservedSelection.campId);
     return loadCamps();
+  }
+
+  function resetSearchConditions() {
+    if (loadingPromise) return;
+    activeFilterType = "all";
+    selection = { campId: "", classId: "", lessonIds: [] };
+    catalog = { ...catalog, classes: [], lessons: [] };
+    issues = [];
+    meta = {};
+    baseIssues = [];
+    baseMeta = {};
+    ui.update({ selection, catalog, issues, meta, summaryIssues: null, error: "", progress: "" });
   }
 
   async function promoteHomeClass(issue) {
