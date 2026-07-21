@@ -133,9 +133,9 @@ export class AlertUI {
     root.innerHTML = `
       <button class="crm-alert-trigger" type="button" aria-haspopup="dialog" title="打开作业统计看板">作业统计</button>
       <div class="crm-alert-backdrop" hidden></div>
-      <aside class="crm-alert-drawer" role="dialog" aria-modal="true" aria-label="作业详情" aria-hidden="true">
+      <aside class="crm-alert-drawer" role="dialog" aria-modal="true" aria-label="作业统计" aria-hidden="true">
         <header class="crm-alert-header">
-          <div><h2>作业详情</h2></div>
+          <div><h2>作业统计</h2></div>
           <div class="crm-alert-header__actions">
             <button type="button" data-action="refresh">刷新</button>
             <button class="crm-alert-icon-button" type="button" data-action="close" title="关闭" aria-label="关闭">×</button>
@@ -150,8 +150,9 @@ export class AlertUI {
         </div>
         <div class="crm-alert-body">
           <section class="crm-alert-status" aria-live="polite"></section>
-          <section class="crm-alert-filters"></section>
           <section class="crm-alert-summary"></section>
+          <section class="crm-alert-filters"></section>
+          <section class="crm-alert-segments" aria-label="异常类型筛选"></section>
           <section class="crm-alert-results"></section>
           <section class="crm-alert-notes"></section>
         </div>
@@ -377,6 +378,7 @@ export class AlertUI {
     this.renderStatus();
     this.renderSummary(counts);
     this.renderFilters();
+    this.renderSegments();
     this.renderResults();
     this.renderNotes();
   }
@@ -397,17 +399,11 @@ export class AlertUI {
 
   renderSummary(counts) {
     const target = this.root.querySelector(".crm-alert-summary");
-    const active = this.state.filters.type;
     target.innerHTML = `
       <div class="crm-alert-summary__item crm-alert-summary__item--absence"><span>旷课</span><strong>${counts.absence}</strong></div>
       <div class="crm-alert-summary__item crm-alert-summary__item--homework"><span>作业未完成</span><strong>${counts.homework}</strong></div>
       <div class="crm-alert-summary__item crm-alert-summary__item--extension"><span>拓展未完成</span><strong>${counts.extension}</strong></div>
-      <div class="crm-alert-summary__item crm-alert-summary__item--transfer"><span>调课 / 待确认</span><strong>${counts.transfer}</strong></div>
-      <div class="crm-alert-segments" aria-label="异常类型筛选">
-        ${[["all", "全部"], ["inclass", "课中作业"], ["homework", "课后作业"], ["extension", "课后拓展"], ["absence", "旷课"], ["transfer", "调课"]].map(([value, label]) =>
-          `<button type="button" data-filter-type="${value}" class="${active === value ? "is-active" : ""}"${this.state.loading ? " disabled" : ""}>${label}</button>`
-        ).join("")}
-      </div>`;
+      <div class="crm-alert-summary__item crm-alert-summary__item--transfer"><span>调课 / 待确认</span><strong>${counts.transfer}</strong></div>`;
   }
 
   renderFilters() {
@@ -445,6 +441,14 @@ export class AlertUI {
         </div>
         <input data-filter="query" type="search" value="${escapeHtml(this.queryDraft)}" placeholder="搜索学员姓名或 ID" aria-label="搜索学员" enterkeyhint="search" />
       </div>`;
+  }
+
+  renderSegments() {
+    const target = this.root.querySelector(".crm-alert-segments");
+    const active = this.state.filters.type;
+    target.innerHTML = [["all", "全部"], ["inclass", "课中作业"], ["homework", "课后作业"], ["extension", "课后拓展"], ["absence", "旷课"], ["transfer", "调课"]].map(([value, label]) =>
+      `<button type="button" data-filter-type="${value}" class="${active === value ? "is-active" : ""}"${this.state.loading ? " disabled" : ""}>${label}</button>`
+    ).join("");
   }
 
   renderResults() {
