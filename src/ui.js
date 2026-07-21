@@ -150,8 +150,8 @@ export class AlertUI {
         </div>
         <div class="crm-alert-body">
           <section class="crm-alert-status" aria-live="polite"></section>
-          <section class="crm-alert-summary"></section>
           <section class="crm-alert-filters"></section>
+          <section class="crm-alert-summary"></section>
           <section class="crm-alert-results"></section>
           <section class="crm-alert-notes"></section>
         </div>
