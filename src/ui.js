@@ -227,18 +227,25 @@ export class AlertUI {
     this.root.querySelector(".crm-alert-backdrop").hidden = true;
     this.root.querySelector(".crm-alert-drawer").classList.remove("is-open");
     this.root.querySelector(".crm-alert-drawer").setAttribute("aria-hidden", "true");
+    this.clearLocalSearchConditions();
+    this.callbacks.onClose?.();
+    this.render();
   }
 
   resetSearchConditions() {
     if (this.state.loading) return;
+    this.clearLocalSearchConditions();
+    this.callbacks.onReset?.();
+    this.render();
+  }
+
+  clearLocalSearchConditions() {
     this.state.filters = { type: "all", query: "" };
     this.queryDraft = "";
     this.lessonMenuOpen = false;
     this.lessonDraft = [];
     this.copyFeedback = "";
     this.exportFeedback = "";
-    this.callbacks.onReset?.();
-    this.render();
   }
 
   update(patch) {

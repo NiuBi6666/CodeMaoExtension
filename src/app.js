@@ -27,6 +27,7 @@ export async function startApp() {
   let baseMeta = {};
   let activeFilterType = "all";
   let loadingPromise = null;
+  let requestGeneration = 0;
   let catalog = { camps: [], classes: [], lessons: [] };
   let selection = { campId: "", classId: "", lessonIds: [] };
 
@@ -35,6 +36,7 @@ export async function startApp() {
       ui.open();
       if (!catalog.camps.length && !loadingPromise) await loadCamps();
     },
+    onClose: () => clearSearchState({ clearCamps: true }),
     onReset: () => resetSearchConditions(),
     onRefresh: () => refresh(),
     onCampChange: (campId) => {
@@ -58,10 +60,12 @@ export async function startApp() {
 
   async function loadCamps() {
     if (loadingPromise) return loadingPromise;
+    const generation = requestGeneration;
     loadingPromise = (async () => {
       ui.update({ loading: true, progress: "正在加载营期…", error: "" });
       try {
         const result = await loadCampCatalog();
+        if (generation !== requestGeneration) return;
         catalog = { camps: result.camps, classes: [], lessons: [] };
         selection = { campId: "", classId: "", lessonIds: [] };
         issues = [];
@@ -70,9 +74,11 @@ export async function startApp() {
         baseMeta = {};
         ui.update({ catalog, selection, issues, meta, summaryIssues: null, loading: false, progress: "", error: "" });
       } catch (error) {
-        ui.update({ loading: false, progress: "", error: error.message || "营期加载失败" });
+        if (generation === requestGeneration) {
+          ui.update({ loading: false, progress: "", error: error.message || "营期加载失败" });
+        }
       } finally {
-        loadingPromise = null;
+        if (generation === requestGeneration) loadingPromise = null;
       }
     })();
     return loadingPromise;
@@ -89,16 +95,20 @@ export async function startApp() {
     baseMeta = {};
     ui.update({ selection, catalog, issues, meta, summaryIssues: null, error: "" });
     if (!nextCampId) return;
+    const generation = requestGeneration;
     loadingPromise = (async () => {
       ui.update({ loading: true, progress: "正在加载该营期的班级…", error: "" });
       try {
         const result = await loadClassCatalog(nextCampId);
+        if (generation !== requestGeneration) return;
         catalog = { ...catalog, classes: result.classes, lessons: [] };
         ui.update({ catalog, selection, loading: false, progress: "", error: "" });
       } catch (error) {
-        ui.update({ loading: false, progress: "", error: error.message || "班级加载失败" });
+        if (generation === requestGeneration) {
+          ui.update({ loading: false, progress: "", error: error.message || "班级加载失败" });
+        }
       } finally {
-        loadingPromise = null;
+        if (generation === requestGeneration) loadingPromise = null;
       }
     })();
     return loadingPromise;
@@ -115,6 +125,7 @@ export async function startApp() {
     baseMeta = {};
     ui.update({ selection, catalog, issues, meta, summaryIssues: null, error: "" });
     if (!selection.campId || !nextClassId || !nextLessonIds.length) return;
+    const generation = requestGeneration;
     loadingPromise = (async () => {
       ui.update({
         loading: true,
@@ -128,8 +139,11 @@ export async function startApp() {
           campId: selection.campId,
           classId: nextClassId,
           lessonIds: nextLessonIds,
-          onProgress: ({ label }) => ui.update({ progress: `正在读取：${label}` })
+          onProgress: ({ label }) => {
+            if (generation === requestGeneration) ui.update({ progress: `正在读取：${label}` });
+          }
         });
+        if (generation !== requestGeneration) return;
         issues = result.issues;
         meta = result.meta;
         baseIssues = issues;
@@ -138,9 +152,11 @@ export async function startApp() {
         selection = { ...selection, lessonIds: normalizeLessonIds(meta.selectedLessonIds || [meta.selectedLessonId || meta.defaultLessonId]) };
         ui.update({ issues, meta, catalog, selection, roster, summaryIssues: baseIssues, loading: false, progress: "", error: "" });
       } catch (error) {
-        ui.update({ loading: false, progress: "", error: error.message || "班级数据加载失败" });
+        if (generation === requestGeneration) {
+          ui.update({ loading: false, progress: "", error: error.message || "班级数据加载失败" });
+        }
       } finally {
-        loadingPromise = null;
+        if (generation === requestGeneration) loadingPromise = null;
       }
     })();
     return loadingPromise;
@@ -157,16 +173,20 @@ export async function startApp() {
     baseMeta = {};
     ui.update({ selection, catalog, issues, meta, summaryIssues: null, error: "" });
     if (!selection.campId || !nextClassId) return;
+    const generation = requestGeneration;
     loadingPromise = (async () => {
       ui.update({ loading: true, progress: "正在加载全部课节…", error: "" });
       try {
         const result = await loadLessonCatalog(selection.campId);
+        if (generation !== requestGeneration) return;
         catalog = { ...catalog, lessons: result.lessons };
         ui.update({ catalog, selection, loading: false, progress: "", error: "" });
       } catch (error) {
-        ui.update({ loading: false, progress: "", error: error.message || "课节加载失败" });
+        if (generation === requestGeneration) {
+          ui.update({ loading: false, progress: "", error: error.message || "课节加载失败" });
+        }
       } finally {
-        loadingPromise = null;
+        if (generation === requestGeneration) loadingPromise = null;
       }
     })();
     return loadingPromise;
@@ -187,6 +207,7 @@ export async function startApp() {
       .map((lessonId) => catalog.lessons.find((option) => String(option.value) === lessonId))
       .filter(Boolean);
     if (!selection.campId || !selection.classId || !selectedLessonIds.length || lessonOptions.length !== selectedLessonIds.length) return;
+    const generation = requestGeneration;
     loadingPromise = (async () => {
       ui.update({ loading: true, progress: `正在读取${activeFilterType === "inclass" ? "课中作业" : activeFilterType === "homework" ? "课后作业" : "课后拓展"}分类…`, error: "" });
       try {
@@ -197,20 +218,24 @@ export async function startApp() {
           quicklyOperate,
           categoryType: activeFilterType
         });
+        if (generation !== requestGeneration) return;
         issues = result.issues;
         meta = { ...baseMeta, ...result.meta, lessonOptions: catalog.lessons };
         ui.update({ issues, meta, loading: false, progress: "", error: "" });
       } catch (error) {
-        issues = [];
-        ui.update({ issues, loading: false, progress: "", error: error.message || "分类数据加载失败" });
+        if (generation === requestGeneration) {
+          issues = [];
+          ui.update({ issues, loading: false, progress: "", error: error.message || "分类数据加载失败" });
+        }
       } finally {
-        loadingPromise = null;
+        if (generation === requestGeneration) loadingPromise = null;
       }
     })();
     return loadingPromise;
   }
 
   async function refresh() {
+    const generation = requestGeneration;
     const preservedFilterType = activeFilterType;
     const preservedSelection = {
       campId: selection.campId,
@@ -220,6 +245,7 @@ export async function startApp() {
 
     if (preservedSelection.classId && preservedSelection.lessonIds.length) {
       await loadSelectedClass(preservedSelection.classId, preservedSelection.lessonIds);
+      if (generation !== requestGeneration) return;
       activeFilterType = preservedFilterType;
       if (CATEGORY_OPERATIONS[preservedFilterType]) return loadCategory(preservedFilterType);
       return;
@@ -231,17 +257,26 @@ export async function startApp() {
 
   function resetSearchConditions() {
     if (loadingPromise) return;
+    clearSearchState({ clearCamps: false });
+  }
+
+  function clearSearchState({ clearCamps }) {
+    requestGeneration += 1;
+    loadingPromise = null;
     activeFilterType = "all";
     selection = { campId: "", classId: "", lessonIds: [] };
-    catalog = { ...catalog, classes: [], lessons: [] };
+    catalog = clearCamps
+      ? { camps: [], classes: [], lessons: [] }
+      : { ...catalog, classes: [], lessons: [] };
     issues = [];
     meta = {};
     baseIssues = [];
     baseMeta = {};
-    ui.update({ selection, catalog, issues, meta, summaryIssues: null, error: "", progress: "" });
+    ui.update({ selection, catalog, issues, meta, summaryIssues: null, loading: false, error: "", progress: "" });
   }
 
   async function promoteHomeClass(issue) {
+    const generation = requestGeneration;
     overrides = await setHomeClassOverride(
       issue.campId,
       issue.studentId,
@@ -249,13 +284,16 @@ export async function startApp() {
       issue.currentClassTime,
       issue.lessonEndedAt
     );
+    if (generation !== requestGeneration) return;
     issues = [];
     ui.update({ issues, error: "", progress: "常驻班级已更新，正在重新判定…" });
     await refresh();
   }
 
   async function restoreHomeClass(issue) {
+    const generation = requestGeneration;
     overrides = await clearHomeClassOverride(issue.campId, issue.studentId);
+    if (generation !== requestGeneration) return;
     issues = [];
     ui.update({ issues, error: "", progress: "已恢复初始班级，正在重新判定…" });
     await refresh();
