@@ -167,7 +167,7 @@ export class AlertUI {
     this.triggerAnchorObserver.observe(document.body, { childList: true, subtree: true });
     trigger.addEventListener("click", () => this.callbacks.onOpen());
     root.querySelector(".crm-alert-backdrop").addEventListener("click", () => this.close());
-    root.querySelector('[data-action="close"]').addEventListener("click", () => this.close());
+    root.querySelector('[data-action="close"]').addEventListener("click", () => this.close({ clearSearch: true }));
     root.querySelector('[data-action="reset"]').addEventListener("click", () => this.resetSearchConditions());
     root.querySelector('[data-action="refresh"]').addEventListener("click", () => this.callbacks.onRefresh());
     root.addEventListener("click", (event) => this.handleClick(event));
@@ -222,13 +222,15 @@ export class AlertUI {
     this.root.querySelector(".crm-alert-drawer").setAttribute("aria-hidden", "false");
   }
 
-  close() {
+  close({ clearSearch = false } = {}) {
     this.state.open = false;
     this.root.querySelector(".crm-alert-backdrop").hidden = true;
     this.root.querySelector(".crm-alert-drawer").classList.remove("is-open");
     this.root.querySelector(".crm-alert-drawer").setAttribute("aria-hidden", "true");
-    this.clearLocalSearchConditions();
-    this.callbacks.onClose?.();
+    if (clearSearch) {
+      this.clearLocalSearchConditions();
+      this.callbacks.onClose?.();
+    }
     this.render();
   }
 
