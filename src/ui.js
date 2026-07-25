@@ -356,6 +356,11 @@ export class AlertUI {
     if (event.target.dataset.filter === "query") {
       this.queryDraft = event.target.value;
       this.copyFeedback = "";
+      if (!this.queryDraft.trim() && this.state.filters.query) {
+        this.queryDraft = "";
+        this.state.filters.query = "";
+        this.render();
+      }
     }
   }
 
