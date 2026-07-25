@@ -364,6 +364,9 @@ export class AlertUI {
         this.queryDraft = "";
         this.state.filters.query = "";
         this.render();
+        const queryInput = this.root.querySelector('input[data-filter="query"]');
+        queryInput?.focus({ preventScroll: true });
+        queryInput?.setSelectionRange(0, 0);
       }
     }
   }
