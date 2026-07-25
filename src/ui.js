@@ -486,7 +486,7 @@ export class AlertUI {
       <div class="crm-alert-segment-buttons">${filterButtons}</div>
       <div class="crm-alert-filter-actions">
         <button type="button" data-action="reset"${disabled}>重置</button>
-        <button type="button" data-action="refresh"${disabled}>重新加载</button>
+        <button type="button" class="is-primary" data-action="refresh"${disabled}>重新加载</button>
       </div>`;
   }
 

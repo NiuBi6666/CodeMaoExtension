@@ -291,7 +291,10 @@
   font-size: 13px;
 }
 .crm-alert-filter-actions button:hover { border-color: var(--crm-alert-blue); color: var(--crm-alert-blue); }
+.crm-alert-filter-actions button.is-primary { border-color: var(--crm-alert-blue); background: var(--crm-alert-blue); color: #fff; }
+.crm-alert-filter-actions button.is-primary:hover { border-color: #4096ff; background: #4096ff; color: #fff; }
 .crm-alert-filter-actions button:disabled { border-color: #e5e6eb; color: #c9cdd4; cursor: not-allowed; }
+.crm-alert-filter-actions button.is-primary:disabled { border-color: #91caff; background: #91caff; color: #fff; }
 
 .crm-alert-multi-select { position: relative; min-width: 0; }
 .crm-alert-multi-select__trigger {
