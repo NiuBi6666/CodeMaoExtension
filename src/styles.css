@@ -220,11 +220,18 @@
 
 .crm-alert-segments {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   padding: 10px 0 12px;
   overflow-x: auto;
   background: #fff;
 }
-.crm-alert-segments button {
+.crm-alert-segment-buttons {
+  display: flex;
+  flex: none;
+}
+.crm-alert-segment-buttons button {
   min-width: 72px;
   height: 30px;
   padding: 0 12px;
@@ -234,10 +241,10 @@
   color: var(--crm-alert-muted);
   cursor: pointer;
 }
-.crm-alert-segments button:first-child { border-radius: 4px 0 0 4px; }
-.crm-alert-segments button:last-child { border-right: 1px solid #d9d9d9; border-radius: 0 4px 4px 0; }
-.crm-alert-segments button.is-active { border-color: var(--crm-alert-blue); background: var(--crm-alert-blue); color: #fff; }
-.crm-alert-segments button:disabled { cursor: not-allowed; opacity: 0.55; }
+.crm-alert-segment-buttons button:first-child { border-radius: 4px 0 0 4px; }
+.crm-alert-segment-buttons button:last-child { border-right: 1px solid #d9d9d9; border-radius: 0 4px 4px 0; }
+.crm-alert-segment-buttons button.is-active { border-color: var(--crm-alert-blue); background: var(--crm-alert-blue); color: #fff; }
+.crm-alert-segment-buttons button:disabled { cursor: not-allowed; opacity: 0.55; }
 
 .crm-alert-filter-grid {
   display: grid;
@@ -267,10 +274,9 @@
 .crm-alert-multi-select__trigger:focus { border-color: var(--crm-alert-blue); outline: 2px solid rgba(22, 119, 255, 0.1); }
 
 .crm-alert-filter-actions {
-  grid-column: 1 / -1;
   display: flex;
+  flex: none;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
 }
 .crm-alert-filter-actions button {
@@ -285,10 +291,7 @@
   font-size: 13px;
 }
 .crm-alert-filter-actions button:hover { border-color: var(--crm-alert-blue); color: var(--crm-alert-blue); }
-.crm-alert-filter-actions button.is-primary { border-color: var(--crm-alert-blue); background: var(--crm-alert-blue); color: #fff; }
-.crm-alert-filter-actions button.is-primary:hover { border-color: #4096ff; background: #4096ff; color: #fff; }
 .crm-alert-filter-actions button:disabled { border-color: #e5e6eb; color: #c9cdd4; cursor: not-allowed; }
-.crm-alert-filter-actions button.is-primary:disabled { background: #91caff; color: #fff; }
 
 .crm-alert-multi-select { position: relative; min-width: 0; }
 .crm-alert-multi-select__trigger {
@@ -456,7 +459,6 @@
   .crm-alert-segments { overflow-x: auto; }
   .crm-alert-filter-grid { grid-template-columns: 1fr; }
   .crm-alert-filter-grid > input[data-filter="query"] { grid-column: 1; }
-  .crm-alert-filter-actions { grid-column: 1; }
   .crm-alert-result-heading { align-items: flex-start; flex-wrap: wrap; padding: 10px 0; }
   .crm-alert-result-title { align-items: flex-start; flex-direction: column; gap: 2px; }
   .crm-alert-result-actions { flex-wrap: wrap; }

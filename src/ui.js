@@ -237,14 +237,6 @@ export class AlertUI {
     this.render();
   }
 
-  submitSearch() {
-    if (this.state.loading) return;
-    this.state.filters.query = this.queryDraft.trim();
-    this.copyFeedback = "";
-    this.render();
-    this.callbacks.onRefresh?.();
-  }
-
   clearLocalSearchConditions() {
     this.state.filters = { type: "all", query: "" };
     this.queryDraft = "";
@@ -274,10 +266,6 @@ export class AlertUI {
     }
     if (button.dataset.action === "refresh") {
       this.callbacks.onRefresh?.();
-      return;
-    }
-    if (button.dataset.action === "search") {
-      this.submitSearch();
       return;
     }
     if (button.dataset.lessonMenu !== undefined) {
@@ -484,20 +472,22 @@ export class AlertUI {
             </div>` : ""}
         </div>
         <input data-filter="query" type="search" value="${escapeHtml(this.queryDraft)}" placeholder="搜索学员姓名或 ID" aria-label="搜索学员" enterkeyhint="search" />
-        <div class="crm-alert-filter-actions">
-          <button type="button" data-action="reset"${loading ? " disabled" : ""}>重置</button>
-          <button type="button" data-action="refresh"${loading ? " disabled" : ""}>刷新</button>
-          <button type="button" class="is-primary" data-action="search"${loading ? " disabled" : ""}>搜索</button>
-        </div>
       </div>`;
   }
 
   renderSegments() {
     const target = this.root.querySelector(".crm-alert-segments");
     const active = this.state.filters.type;
-    target.innerHTML = [["all", "全部"], ["inclass", "课中作业"], ["homework", "课后作业"], ["extension", "课后拓展"], ["absence", "旷课"], ["transfer", "调课"]].map(([value, label]) =>
-      `<button type="button" data-filter-type="${value}" class="${active === value ? "is-active" : ""}"${this.state.loading ? " disabled" : ""}>${label}</button>`
+    const disabled = this.state.loading ? " disabled" : "";
+    const filterButtons = [["all", "全部"], ["inclass", "课中作业"], ["homework", "课后作业"], ["extension", "课后拓展"], ["absence", "旷课"], ["transfer", "调课"]].map(([value, label]) =>
+      `<button type="button" data-filter-type="${value}" class="${active === value ? "is-active" : ""}"${disabled}>${label}</button>`
     ).join("");
+    target.innerHTML = `
+      <div class="crm-alert-segment-buttons">${filterButtons}</div>
+      <div class="crm-alert-filter-actions">
+        <button type="button" data-action="reset"${disabled}>重置</button>
+        <button type="button" data-action="refresh"${disabled}>重新加载</button>
+      </div>`;
   }
 
   renderResults() {
