@@ -135,7 +135,7 @@ export function extractCamps(payload) {
     const active = !explicitlyClosed && (!endedAt || parseDate(endedAt) >= new Date());
     byId.set(id, { id, name, status, active, raw });
   }
-  return [...byId.values()].filter((camp) => camp.active);
+  return [...byId.values()].sort((a, b) => Number(b.active) - Number(a.active));
 }
 
 function lessonScore(item) {
@@ -542,9 +542,9 @@ async function loadCrmContext() {
   const teacherId = teacherIdFromState(state);
   if (!teacherId) throw new Error("无法识别当前教师，请确认已登录并刷新 CRM 工作台");
   const campCapture = state.captures?.campInfo || state.captures?.courseCampInfo;
-  if (!campCapture?.data) throw new Error("未读取到在读营期，请刷新 CRM 工作台后重试");
+  if (!campCapture?.data) throw new Error("未读取到营期，请刷新 CRM 工作台后重试");
   const camps = extractCamps(campCapture.data);
-  if (!camps.length) throw new Error("当前账号没有可识别的在读营期");
+  if (!camps.length) throw new Error("当前账号没有可识别的营期");
   return { bridge, state, teacherId, camps };
 }
 
@@ -552,7 +552,10 @@ export async function loadCampCatalog() {
   const { teacherId, camps } = await loadCrmContext();
   return {
     teacherId,
-    camps: camps.map((camp) => ({ value: camp.id, label: camp.name }))
+    camps: camps.map((camp) => ({
+      value: camp.id,
+      label: camp.active || /结营/.test(camp.name) ? camp.name : `${camp.name}（已结营）`
+    }))
   };
 }
 
@@ -560,7 +563,7 @@ export async function loadClassCatalog(campId) {
   const { bridge, teacherId, camps } = await loadCrmContext();
   const selectedCampId = normalizeId(campId);
   const camp = camps.find((item) => item.id === selectedCampId);
-  if (!camp) throw new Error("选择的营期不存在或已经结营");
+  if (!camp) throw new Error("选择的营期不存在");
   const response = await bridge.replay("courseCampInfo", { teacherId, campId: camp.id, allClasses: true });
   let classes = extractClasses(response.data);
   if (!classes.length) {
@@ -585,7 +588,7 @@ export async function loadLessonCatalog(campId) {
   const { bridge, state, teacherId, camps } = await loadCrmContext();
   const selectedCampId = normalizeId(campId);
   const camp = camps.find((item) => item.id === selectedCampId);
-  if (!camp) throw new Error("选择的营期不存在或已经结营");
+  if (!camp) throw new Error("选择的营期不存在");
   if (!state.templates?.lessons) {
     throw new Error("CRM 课节查询尚未初始化，请刷新工作台后重试");
   }
@@ -748,7 +751,7 @@ export async function collectCategoryRows({ campId = "", classId = "", lessonOpt
   const selectedCampId = normalizeId(campId);
   const selectedClassId = normalizeId(classId);
   const camp = context.camps.find((item) => item.id === selectedCampId);
-  if (!camp) throw new Error("选择的营期不存在或已经结营");
+  if (!camp) throw new Error("选择的营期不存在");
   if (!selectedClassId) throw new Error("请先选择班级");
   const options = [...new Map(
     [...(Array.isArray(lessonOptions) ? lessonOptions : []), ...(lessonOption ? [lessonOption] : [])]
@@ -862,7 +865,7 @@ export async function collectAllIssues({ roster = [], overrides, campId = "", cl
   if (!selectedCampId) throw new Error("请先选择营期");
   if (!selectedClassId) throw new Error("请先选择班级");
   const camps = context.camps.filter((camp) => camp.id === selectedCampId);
-  if (!camps.length) throw new Error("选择的营期不存在或已经结营");
+  if (!camps.length) throw new Error("选择的营期不存在");
 
   const lessonJobs = [];
   const automaticRoster = [];
@@ -933,7 +936,7 @@ export async function collectAllIssues({ roster = [], overrides, campId = "", cl
         fallbackReason: ""
       }
     : selectLatestLessonJob(lessonJobs, now, state.lessonHint);
-  if (!selection.job) throw new Error("当前在读营期没有可识别的课次");
+  if (!selection.job) throw new Error("当前营期没有可识别的课次");
   const jobs = requestedJobs.length
     ? [...new Map(requestedJobs.map((job) => [normalizeId(job.lesson.id), job])).values()]
     : [selection.job];
