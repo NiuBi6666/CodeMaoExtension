@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "CRM作业助手",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "在深空 CRM 中按营期、班级和课程查看学员作业明细与异常统计。",
   "icons": {
     "16": "icons/icon16.png",
@@ -12,7 +12,8 @@
   "permissions": ["storage"],
   "host_permissions": [
     "https://sk-crm.codemao.cn/*",
-    "https://api-live-class-crm.codemao.cn/*"
+    "https://api-live-class-crm.codemao.cn/*",
+    "https://codedog.online/*"
   ],
   "content_scripts": [
     {

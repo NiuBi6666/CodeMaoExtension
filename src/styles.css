@@ -127,6 +127,44 @@
 }
 
 .crm-alert-status:empty { display: none; }
+.crm-alert-ranking { margin: 12px 0; }
+.crm-alert-ranking__bar {
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 1px solid #d9e4e6;
+  border-left: 3px solid var(--crm-alert-cyan);
+  border-radius: 4px;
+  background: #f2fbfb;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.crm-alert-ranking__bar strong { color: #17666b; white-space: nowrap; }
+.crm-alert-ranking__bar span { min-width: 0; flex: 1; color: #4e5969; font-size: 12px; overflow-wrap: anywhere; }
+.crm-alert-ranking__bar small { color: var(--crm-alert-muted); white-space: nowrap; }
+.crm-alert-ranking__bar input {
+  width: 150px;
+  height: 32px;
+  border: 1px solid #c9d5d8;
+  border-radius: 4px;
+  padding: 0 9px;
+  background: #fff;
+}
+.crm-alert-ranking__bar button {
+  min-height: 32px;
+  padding: 0 11px;
+  border: 1px solid #b8cbce;
+  border-radius: 4px;
+  background: #fff;
+  color: #17666b;
+  cursor: pointer;
+}
+.crm-alert-ranking__bar button:disabled { color: #aeb8bf; cursor: not-allowed; }
+@media (max-width: 620px) {
+  .crm-alert-ranking__bar { flex-wrap: wrap; }
+  .crm-alert-ranking__bar span { flex-basis: calc(100% - 72px); }
+  .crm-alert-ranking__bar small { width: 100%; }
+}
 .crm-alert-loading-mask {
   position: absolute;
   z-index: 4;

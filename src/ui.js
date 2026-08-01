@@ -114,6 +114,7 @@ export class AlertUI {
       issues: [],
       summaryIssues: null,
       meta: {},
+      ranking: { connected: false, syncing: false, lastSyncAt: "", message: "" },
       catalog: { camps: [], classes: [], lessons: [] },
       selection: { campId: "", classId: "", lessonIds: [] },
       filters: { type: "all", query: "" }
@@ -122,6 +123,7 @@ export class AlertUI {
     this.lessonDraft = [];
     this.copyFeedback = "";
     this.exportFeedback = "";
+    this.rankingCodeDraft = "";
     this.queryDraft = "";
     this.copyFeedbackTimer = null;
     this.exportFeedbackTimer = null;
@@ -149,6 +151,7 @@ export class AlertUI {
         </div>
         <div class="crm-alert-body">
           <section class="crm-alert-status" aria-live="polite"></section>
+          <section class="crm-alert-ranking" aria-label="积分同步"></section>
           <section class="crm-alert-summary"></section>
           <section class="crm-alert-filters"></section>
           <section class="crm-alert-segments" aria-label="异常类型筛选"></section>
@@ -260,6 +263,18 @@ export class AlertUI {
   handleClick(event) {
     const button = event.target.closest("button[data-action], button[data-filter-type], button[data-row-action], button[data-copy-ids], button[data-export-excel], button[data-lesson-menu], button[data-lesson-clear], button[data-lesson-apply]");
     if (!button) return;
+    if (button.dataset.action === "ranking-connect") {
+      this.callbacks.onRankingConnect?.(this.rankingCodeDraft);
+      return;
+    }
+    if (button.dataset.action === "ranking-sync") {
+      this.callbacks.onRankingSync?.();
+      return;
+    }
+    if (button.dataset.action === "ranking-disconnect") {
+      this.callbacks.onRankingDisconnect?.();
+      return;
+    }
     if (button.dataset.action === "reset") {
       this.resetSearchConditions();
       return;
@@ -357,6 +372,10 @@ export class AlertUI {
   }
 
   handleInput(event) {
+    if (event.target.dataset.rankingCode !== undefined) {
+      this.rankingCodeDraft = event.target.value.replace(/[^0-9-]/g, "").slice(0, 9);
+      return;
+    }
     if (event.target.dataset.filter === "query") {
       this.queryDraft = event.target.value;
       this.copyFeedback = "";
@@ -411,6 +430,7 @@ export class AlertUI {
     const countedIssues = filterIssues(summarySource, { ...this.state.filters, type: "all" });
     const counts = aggregateCounts(countedIssues);
     this.renderStatus();
+    this.renderRanking();
     this.renderSummary(counts);
     this.renderFilters();
     this.renderSegments();
@@ -430,6 +450,27 @@ export class AlertUI {
     } else {
       target.innerHTML = "";
     }
+  }
+
+  renderRanking() {
+    const target = this.root.querySelector(".crm-alert-ranking");
+    const ranking = this.state.ranking || {};
+    if (!ranking.connected) {
+      target.innerHTML = `<div class="crm-alert-ranking__bar">
+        <strong>积分榜</strong>
+        <input data-ranking-code value="${escapeHtml(this.rankingCodeDraft)}" inputmode="numeric" autocomplete="one-time-code" placeholder="输入连接码" aria-label="CodeDog 连接码"${ranking.syncing ? " disabled" : ""}>
+        <button type="button" data-action="ranking-connect"${ranking.syncing ? " disabled" : ""}>连接</button>
+        <span>${escapeHtml(ranking.message || "未连接")}</span>
+      </div>`;
+      return;
+    }
+    const lastSync = ranking.lastSyncAt ? formatDate(ranking.lastSyncAt) : "尚未同步";
+    target.innerHTML = `<div class="crm-alert-ranking__bar is-connected">
+      <strong>积分榜</strong><span>${escapeHtml(ranking.message || lastSync)}</span>
+      <button type="button" data-action="ranking-sync"${ranking.syncing || !this.state.selection.campId ? " disabled" : ""}>${ranking.syncing ? "同步中…" : "立即同步"}</button>
+      <button type="button" data-action="ranking-disconnect"${ranking.syncing ? " disabled" : ""}>断开</button>
+      <small>${escapeHtml(lastSync)}</small>
+    </div>`;
   }
 
   renderSummary(counts) {

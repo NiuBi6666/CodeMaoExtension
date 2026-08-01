@@ -5,6 +5,14 @@ import {
   loadRoster,
   setHomeClassOverride
 } from "./storage.js";
+import {
+  connectRanking,
+  disconnectRanking,
+  rankingStatus,
+  rememberRankingCamp,
+  startRankingScheduler,
+  syncRankingCamp
+} from "./ranking-sync.js";
 import { AlertUI } from "./ui.js";
 
 const CATEGORY_OPERATIONS = {
@@ -30,6 +38,12 @@ export async function startApp() {
   let requestGeneration = 0;
   let catalog = { camps: [], classes: [], lessons: [] };
   let selection = { campId: "", classId: "", lessonIds: [] };
+  let ranking = { connected: false, syncing: false, lastSyncAt: "", message: "" };
+
+  const updateRanking = (patch) => {
+    ranking = { ...ranking, ...patch };
+    ui.update({ ranking });
+  };
 
   const ui = new AlertUI({
     onOpen: async () => {
@@ -41,6 +55,7 @@ export async function startApp() {
     onRefresh: () => refresh(),
     onCampChange: (campId) => {
       activeFilterType = "all";
+      rememberRankingCamp(campId);
       return loadClasses(campId);
     },
     onClassChange: (classId) => {
@@ -53,10 +68,43 @@ export async function startApp() {
     },
     onFilterChange: (type) => loadCategory(type),
     onPromote: promoteHomeClass,
-    onRestore: restoreHomeClass
+    onRestore: restoreHomeClass,
+    onRankingConnect: async (code) => {
+      updateRanking({ syncing: true, message: "正在连接 CodeDog…" });
+      try {
+        updateRanking({ ...(await connectRanking(code)), syncing: false, message: "连接成功" });
+      } catch (error) {
+        updateRanking({ syncing: false, message: error.message || "连接失败" });
+      }
+    },
+    onRankingDisconnect: async () => updateRanking({ ...(await disconnectRanking()), syncing: false, message: "已断开连接" }),
+    onRankingSync: async () => {
+      updateRanking({ syncing: true, message: "正在准备训练营数据…" });
+      try {
+        const result = await syncRankingCamp({
+          campId: selection.campId,
+          roster,
+          overrides,
+          force: true,
+          onProgress: ({ completed, total, label }) => updateRanking({
+            syncing: true,
+            message: `${label}（${completed}/${total}）`
+          })
+        });
+        updateRanking({ ...(await rankingStatus()), syncing: false, message: result.message });
+      } catch (error) {
+        updateRanking({ ...(await rankingStatus()), syncing: false, message: error.message || "同步失败" });
+      }
+    }
   });
   ui.mount();
-  ui.update({ roster, issues, meta, catalog, selection, summaryIssues: null });
+  ui.update({ roster, issues, meta, catalog, selection, ranking, summaryIssues: null });
+  updateRanking(await rankingStatus());
+  startRankingScheduler({
+    getRoster: () => roster,
+    getOverrides: () => overrides,
+    onState: updateRanking
+  });
 
   async function loadCamps() {
     if (loadingPromise) return loadingPromise;
