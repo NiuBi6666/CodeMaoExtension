@@ -332,12 +332,13 @@ test("永久转班覆盖只影响生效课次及之后", () => {
   equal(buildIssues({ ...common, lesson: { id: "new", endedAt: "2026-07-16 09:00:00" } }).length, 0);
 });
 
-test("营期解析排除已结营", () => {
+test("营期解析保留已结营并标记状态", () => {
   const camps = extractCamps({ data: [
     { campId: 1, campName: "在读", liveCampState: { name: "SERVICE", desc: "开营中" } },
     { campId: 2, campName: "结束", liveCampState: { name: "END", desc: "已结营" } }
   ] });
-  equal(camps.map((camp) => camp.id), ["1"]);
+  equal(camps.map((camp) => camp.id), ["1", "2"]);
+  equal(camps.map((camp) => camp.active), [true, false]);
 });
 
 test("课次解析兼容 lbkCourseId 和 lessonIds", () => {
@@ -473,7 +474,8 @@ test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
   equal(manifest.permissions, ["storage"]);
-  ok(manifest.host_permissions.every((origin) => origin.includes("codemao.cn")));
+  ok(manifest.host_permissions.includes("https://codedog.online/*"));
+  ok(manifest.host_permissions.filter((origin) => origin !== "https://codedog.online/*").every((origin) => origin.includes("codemao.cn")));
 });
 
 test("页面脚本语法有效", async () => {
