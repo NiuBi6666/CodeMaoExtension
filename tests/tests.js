@@ -28,7 +28,7 @@ import {
   selectLatestLessonJob
 } from "../src/crm-adapter.js";
 import { createXlsxWorkbook } from "../src/xlsx-exporter.js";
-import { isTransientSyncError, retrySync, runSyncStage } from "../src/ranking-sync.js";
+import { buildRankingImportBatches, isTransientSyncError, retrySync, runSyncStage } from "../src/ranking-sync.js";
 
 const tests = [];
 function test(name, callback) { tests.push({ name, callback }); }
@@ -80,6 +80,35 @@ test("同步永久错误不重试并显示失败阶段", async () => {
   }
   equal(calls, 1);
   equal(message, "读取 CRM 班级目录失败：选择的营期不存在");
+});
+
+test("积分按课节拆分上传批次并保留班级结构", () => {
+  const batches = buildRankingImportBatches({
+    campId: "camp-1",
+    campName: "训练营",
+    classes: [
+      {
+        classId: "class-a",
+        className: "A 班",
+        lessons: [
+          { lessonId: "lesson-1", students: [{ studentId: "1" }] },
+          { lessonId: "lesson-2", students: [{ studentId: "2" }] },
+          { lessonId: "lesson-empty", students: [] }
+        ]
+      },
+      {
+        classId: "class-b",
+        className: "B 班",
+        lessons: [{ lessonId: "lesson-1", students: [{ studentId: "3" }] }]
+      }
+    ]
+  });
+  equal(batches.length, 2);
+  equal(batches[0].campId, "camp-1");
+  equal(batches[0].classes.map((item) => item.classId), ["class-a", "class-b"]);
+  equal(batches[0].classes.map((item) => item.lessons[0].lessonId), ["lesson-1", "lesson-1"]);
+  equal(batches[1].classes.map((item) => item.classId), ["class-a"]);
+  equal(batches[1].classes[0].lessons[0].lessonId, "lesson-2");
 });
 
 function concatBytes(parts) {

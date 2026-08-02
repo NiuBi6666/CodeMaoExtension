@@ -102,6 +102,29 @@ async function digest(value) {
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
+export function buildRankingImportBatches(payload) {
+  const batches = new Map();
+  for (const classItem of payload.classes || []) {
+    for (const lesson of classItem.lessons || []) {
+      if (!(lesson.students || []).length) continue;
+      const lessonId = String(lesson.lessonId || "");
+      if (!batches.has(lessonId)) {
+        batches.set(lessonId, {
+          campId: payload.campId,
+          campName: payload.campName,
+          classes: []
+        });
+      }
+      batches.get(lessonId).classes.push({
+        classId: classItem.classId,
+        className: classItem.className,
+        lessons: [lesson]
+      });
+    }
+  }
+  return [...batches.values()];
+}
+
 export async function syncRankingCamp({ campId, roster, overrides, force = false, onProgress = () => {} }) {
   const current = await connection();
   if (!current?.token) throw new Error("请先连接 CodeDog 积分系统");
@@ -178,18 +201,27 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
   const hashes = stored[HASHES_KEY] || {};
   let result = { changedRows: 0, unchangedRows: rowCount, rejectedRows: 0, skipped: true };
   if (force || hashes[selectedCampId] !== hash) {
-    onProgress({ completed: total, total, label: "正在上传积分到 CodeDog" });
-    result = await runSyncStage("上传 CodeDog 积分", () => api("/api/public/rankings/extension/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}` },
-        body: JSON.stringify(payload)
-      }), {
-        onRetry: ({ nextAttempt }) => onProgress({
-          completed: total,
-          total,
-          label: `上传失败，正在第 ${nextAttempt} 次重试`
-        })
-    });
+    const importBatches = buildRankingImportBatches(payload);
+    result = { changedRows: 0, unchangedRows: 0, rejectedRows: 0, skipped: false, batchCount: importBatches.length };
+    for (const [batchIndex, importPayload] of importBatches.entries()) {
+      const batchNumber = batchIndex + 1;
+      const batchLabel = `上传 CodeDog 积分（${batchNumber}/${importBatches.length}）`;
+      onProgress({ completed: total, total, label: batchLabel });
+      const batchResult = await runSyncStage(batchLabel, () => api("/api/public/rankings/extension/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}` },
+          body: JSON.stringify(importPayload)
+        }), {
+          onRetry: ({ nextAttempt }) => onProgress({
+            completed: total,
+            total,
+            label: `${batchLabel}失败，正在第 ${nextAttempt} 次重试`
+          })
+      });
+      result.changedRows += Number(batchResult.changedRows || 0);
+      result.unchangedRows += Number(batchResult.unchangedRows || 0);
+      result.rejectedRows += Number(batchResult.rejectedRows || 0);
+    }
     hashes[selectedCampId] = hash;
     await storage().set({ [HASHES_KEY]: hashes });
   }
