@@ -63,16 +63,37 @@ function sumCounts(items = []) {
   }), { total: 0, submitted: 0, passed: 0 });
 }
 
-async function retry(action) {
+export function isTransientSyncError(error) {
+  if (error?.name === "AbortError") return true;
+  return /failed to fetch|networkerror|network request failed|load failed|err_(?:network|connection|timed_out)|429|(?:^|\D)5\d{2}(?:\D|$)|频繁|超时|网络|连接中断/i
+    .test(String(error?.message || error || ""));
+}
+
+export async function retrySync(action, {
+  attempts = 3,
+  baseDelayMs = 1000,
+  sleep = wait,
+  onRetry = () => {}
+} = {}) {
   let lastError;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try { return await action(); } catch (error) {
       lastError = error;
-      if (!/429|频繁|超时|网络|5\d\d/.test(String(error?.message || "")) || attempt === 2) throw error;
-      await wait(1000 * (2 ** attempt));
+      if (!isTransientSyncError(error) || attempt === attempts - 1) throw error;
+      const delayMs = baseDelayMs * (2 ** attempt);
+      onRetry({ attempt: attempt + 1, nextAttempt: attempt + 2, delayMs, error });
+      await sleep(delayMs);
     }
   }
   throw lastError;
+}
+
+export async function runSyncStage(label, action, options = {}) {
+  try {
+    return await retrySync(action, options);
+  } catch (error) {
+    throw new Error(`${label}失败：${error?.message || "未知错误"}`, { cause: error });
+  }
 }
 
 async function digest(value) {
@@ -88,9 +109,14 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
   if (!selectedCampId) throw new Error("请先选择需要同步的训练营");
   await rememberRankingCamp(selectedCampId);
 
+  onProgress({ completed: 0, total: 0, label: "正在读取 CRM 班级和课节目录" });
   const [classCatalog, lessonCatalog] = await Promise.all([
-    loadClassCatalog(selectedCampId),
-    loadLessonCatalog(selectedCampId)
+    runSyncStage("读取 CRM 班级目录", () => loadClassCatalog(selectedCampId), {
+      onRetry: ({ nextAttempt }) => onProgress({ completed: 0, total: 0, label: `班级目录读取失败，正在第 ${nextAttempt} 次重试` })
+    }),
+    runSyncStage("读取 CRM 课节目录", () => loadLessonCatalog(selectedCampId), {
+      onRetry: ({ nextAttempt }) => onProgress({ completed: 0, total: 0, label: `课节目录读取失败，正在第 ${nextAttempt} 次重试` })
+    })
   ]);
   const classes = [];
   const total = classCatalog.classes.length * lessonCatalog.lessons.length;
@@ -102,14 +128,21 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
     for (const [lessonIndex, lessonOption] of lessonCatalog.lessons.entries()) {
       onProgress({ completed, total, label: `${classOption.label} / ${lessonOption.label}` });
       try {
-        const result = await retry(() => collectAllIssues({
-          roster,
-          overrides,
-          campId: selectedCampId,
-          classId: classOption.value,
-          lessonIds: [lessonOption.value],
-          onProgress: () => {}
-        }));
+        const stageLabel = `读取 ${classOption.label} / ${lessonOption.label}`;
+        const result = await runSyncStage(stageLabel, () => collectAllIssues({
+            roster,
+            overrides,
+            campId: selectedCampId,
+            classId: classOption.value,
+            lessonIds: [lessonOption.value],
+            onProgress: () => {}
+          }), {
+            onRetry: ({ nextAttempt }) => onProgress({
+              completed,
+              total,
+              label: `${classOption.label} / ${lessonOption.label} 读取失败，正在第 ${nextAttempt} 次重试`
+            })
+          });
         lessons.push({
           lessonId: String(lessonOption.value),
           lessonName: lessonOption.label,
@@ -124,7 +157,7 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
           }))
         });
       } catch (error) {
-        warnings.push(`${classOption.label} / ${lessonOption.label}：${error.message}`);
+        warnings.push(error.message);
       }
       completed += 1;
       onProgress({ completed, total, label: `${classOption.label} / ${lessonOption.label}` });
@@ -145,10 +178,17 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
   const hashes = stored[HASHES_KEY] || {};
   let result = { changedRows: 0, unchangedRows: rowCount, rejectedRows: 0, skipped: true };
   if (force || hashes[selectedCampId] !== hash) {
-    result = await api("/api/public/rankings/extension/import", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}` },
-      body: JSON.stringify(payload)
+    onProgress({ completed: total, total, label: "正在上传积分到 CodeDog" });
+    result = await runSyncStage("上传 CodeDog 积分", () => api("/api/public/rankings/extension/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}` },
+        body: JSON.stringify(payload)
+      }), {
+        onRetry: ({ nextAttempt }) => onProgress({
+          completed: total,
+          total,
+          label: `上传失败，正在第 ${nextAttempt} 次重试`
+        })
     });
     hashes[selectedCampId] = hash;
     await storage().set({ [HASHES_KEY]: hashes });

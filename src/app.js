@@ -88,7 +88,7 @@ export async function startApp() {
           force: true,
           onProgress: ({ completed, total, label }) => updateRanking({
             syncing: true,
-            message: `${label}（${completed}/${total}）`
+            message: total > 0 ? `${label}（${completed}/${total}）` : label
           })
         });
         updateRanking({ ...(await rankingStatus()), syncing: false, message: result.message });

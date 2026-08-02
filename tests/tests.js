@@ -28,6 +28,7 @@ import {
   selectLatestLessonJob
 } from "../src/crm-adapter.js";
 import { createXlsxWorkbook } from "../src/xlsx-exporter.js";
+import { isTransientSyncError, retrySync, runSyncStage } from "../src/ranking-sync.js";
 
 const tests = [];
 function test(name, callback) { tests.push({ name, callback }); }
@@ -37,6 +38,49 @@ function equal(actual, expected, message = "") {
   }
 }
 function ok(value, message = "expected truthy value") { if (!value) throw new Error(message); }
+
+test("同步识别浏览器网络错误和临时服务错误", () => {
+  ok(isTransientSyncError(new TypeError("Failed to fetch")));
+  ok(isTransientSyncError(new Error("NetworkError when attempting to fetch resource")));
+  ok(isTransientSyncError(new Error("CodeDog 请求失败（503）")));
+  ok(isTransientSyncError(new Error("请求超时")));
+  equal(isTransientSyncError(new Error("CodeDog 请求失败（401）")), false);
+  equal(isTransientSyncError(new Error("选择的营期不存在")), false);
+});
+
+test("同步网络错误按指数间隔重试后成功", async () => {
+  let calls = 0;
+  const delays = [];
+  const retries = [];
+  const result = await retrySync(async () => {
+    calls += 1;
+    if (calls < 3) throw new TypeError("Failed to fetch");
+    return "ok";
+  }, {
+    baseDelayMs: 100,
+    sleep: async (delayMs) => { delays.push(delayMs); },
+    onRetry: ({ nextAttempt }) => retries.push(nextAttempt)
+  });
+  equal(result, "ok");
+  equal(calls, 3);
+  equal(delays, [100, 200]);
+  equal(retries, [2, 3]);
+});
+
+test("同步永久错误不重试并显示失败阶段", async () => {
+  let calls = 0;
+  let message = "";
+  try {
+    await runSyncStage("读取 CRM 班级目录", async () => {
+      calls += 1;
+      throw new Error("选择的营期不存在");
+    }, { sleep: async () => {} });
+  } catch (error) {
+    message = error.message;
+  }
+  equal(calls, 1);
+  equal(message, "读取 CRM 班级目录失败：选择的营期不存在");
+});
 
 function concatBytes(parts) {
   const size = parts.reduce((sum, part) => sum + part.length, 0);
