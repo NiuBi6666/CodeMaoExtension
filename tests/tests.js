@@ -28,7 +28,14 @@ import {
   selectLatestLessonJob
 } from "../src/crm-adapter.js";
 import { createXlsxWorkbook } from "../src/xlsx-exporter.js";
-import { buildRankingImportBatches, isTransientSyncError, retrySync, runSyncStage } from "../src/ranking-sync.js";
+import {
+  buildRankingImportBatches,
+  isTransientSyncError,
+  rankingSyncMonthKeys,
+  retrySync,
+  runSyncStage,
+  selectRankingSyncLessons
+} from "../src/ranking-sync.js";
 
 const tests = [];
 function test(name, callback) { tests.push({ name, callback }); }
@@ -109,6 +116,32 @@ test("积分按课节拆分上传批次并保留班级结构", () => {
   equal(batches[0].classes.map((item) => item.lessons[0].lessonId), ["lesson-1", "lesson-1"]);
   equal(batches[1].classes.map((item) => item.classId), ["class-a"]);
   equal(batches[1].classes[0].lessons[0].lessonId, "lesson-2");
+});
+
+test("积分同步在每月前七天同时覆盖上一个自然月", () => {
+  equal(rankingSyncMonthKeys("2026-08-01T00:00:00+08:00"), ["2026-08", "2026-07"]);
+  equal(rankingSyncMonthKeys("2026-08-07T23:59:59+08:00"), ["2026-08", "2026-07"]);
+  equal(rankingSyncMonthKeys("2026-08-08T00:00:00+08:00"), ["2026-08"]);
+  equal(rankingSyncMonthKeys("2026-01-04T12:00:00+08:00"), ["2026-01", "2025-12"]);
+  equal(rankingSyncMonthKeys("2026-08-07T16:00:00Z"), ["2026-08"]);
+});
+
+test("积分同步只选择目标自然月内且有时间的课节", () => {
+  const lessons = [
+    { value: "july-end", endedAt: "2026-07-31 23:59:59" },
+    { value: "august-start", endedAt: "2026-08-01 00:00:00" },
+    { value: "august-end", endedAt: "2026-08-31 23:59:59" },
+    { value: "september", endedAt: "2026-09-01 00:00:00" },
+    { value: "unknown", endedAt: "" }
+  ];
+  equal(
+    selectRankingSyncLessons(lessons, "2026-08-03T12:00:00+08:00").map((lesson) => lesson.value),
+    ["july-end", "august-start", "august-end"]
+  );
+  equal(
+    selectRankingSyncLessons(lessons, "2026-08-08T12:00:00+08:00").map((lesson) => lesson.value),
+    ["august-start", "august-end"]
+  );
 });
 
 function concatBytes(parts) {

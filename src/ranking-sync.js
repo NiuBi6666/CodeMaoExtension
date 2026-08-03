@@ -1,4 +1,5 @@
 import { collectAllIssues, loadClassCatalog, loadLessonCatalog } from "./crm-adapter.js";
+import { issueMonthKey } from "./core.js";
 
 const CODEDOG_ORIGIN = "https://codedog.online";
 const CONNECTION_KEY = "crmLearningAlert.rankingConnection";
@@ -125,7 +126,34 @@ export function buildRankingImportBatches(payload) {
   return [...batches.values()];
 }
 
-export async function syncRankingCamp({ campId, roster, overrides, force = false, onProgress = () => {} }) {
+export function rankingSyncMonthKeys(now = new Date()) {
+  const current = now instanceof Date ? now : new Date(now);
+  if (Number.isNaN(current.getTime())) throw new Error("无法计算积分同步月份");
+  const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(current).map((part) => [part.type, part.value]));
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const keys = [`${parts.year}-${parts.month}`];
+  if (Number(parts.day) <= 7) {
+    const previousYear = month === 1 ? year - 1 : year;
+    const previousMonth = month === 1 ? 12 : month - 1;
+    keys.push(`${previousYear}-${String(previousMonth).padStart(2, "0")}`);
+  }
+  return keys;
+}
+
+export function selectRankingSyncLessons(lessons, now = new Date()) {
+  const monthKeys = new Set(rankingSyncMonthKeys(now));
+  return (lessons || []).filter((lesson) => monthKeys.has(issueMonthKey({
+    lessonEndedAt: lesson?.endedAt
+  })));
+}
+
+export async function syncRankingCamp({ campId, roster, overrides, force = false, onProgress = () => {}, now = new Date() }) {
   const current = await connection();
   if (!current?.token) throw new Error("请先连接 CodeDog 积分系统");
   const selectedCampId = String(campId || "").trim();
@@ -141,14 +169,18 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
       onRetry: ({ nextAttempt }) => onProgress({ completed: 0, total: 0, label: `课节目录读取失败，正在第 ${nextAttempt} 次重试` })
     })
   ]);
+  const syncMonths = rankingSyncMonthKeys(now);
+  const syncLessons = selectRankingSyncLessons(lessonCatalog.lessons, now);
+  if (!syncLessons.length) throw new Error(`同步月份 ${syncMonths.join("、")} 没有可识别的课节`);
+  onProgress({ completed: 0, total: 0, label: `同步范围：${syncMonths.join("、")}` });
   const classes = [];
-  const total = classCatalog.classes.length * lessonCatalog.lessons.length;
+  const total = classCatalog.classes.length * syncLessons.length;
   let completed = 0;
   const warnings = [];
 
   for (const classOption of classCatalog.classes) {
     const lessons = [];
-    for (const [lessonIndex, lessonOption] of lessonCatalog.lessons.entries()) {
+    for (const [lessonIndex, lessonOption] of syncLessons.entries()) {
       onProgress({ completed, total, label: `${classOption.label} / ${lessonOption.label}` });
       try {
         const stageLabel = `读取 ${classOption.label} / ${lessonOption.label}`;
@@ -169,7 +201,7 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
         lessons.push({
           lessonId: String(lessonOption.value),
           lessonName: lessonOption.label,
-          lessonOrder: lessonCatalog.lessons.length - lessonIndex,
+          lessonOrder: syncLessons.length - lessonIndex,
           endedAt: lessonOption.endedAt || null,
           students: result.issues.map((row) => ({
             studentId: row.studentId,
@@ -226,9 +258,10 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
     await storage().set({ [HASHES_KEY]: hashes });
   }
   const lastSyncAt = new Date().toISOString();
-  const lastMessage = warnings.length ? `同步完成，${warnings.length} 个课节读取失败` : "同步完成";
+  const monthLabel = syncMonths.join("、");
+  const lastMessage = warnings.length ? `同步 ${monthLabel} 完成，${warnings.length} 个课节读取失败` : `同步 ${monthLabel} 完成`;
   await storage().set({ [CONNECTION_KEY]: { ...current, lastSyncAt, lastMessage } });
-  return { ...result, rowCount, warnings, lastSyncAt, message: lastMessage };
+  return { ...result, rowCount, warnings, syncMonths, lastSyncAt, message: lastMessage };
 }
 
 function chinaSlot(now = new Date()) {
