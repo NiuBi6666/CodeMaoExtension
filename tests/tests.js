@@ -31,12 +31,16 @@ import {
 import { createXlsxWorkbook } from "../src/xlsx-exporter.js";
 import {
   buildRankingImportBatches,
+  codeDogApi,
+  codeDogNetworkMessage,
+  ensureRankingConnection,
   isTransientSyncError,
   noRankingSyncLessonsMessage,
   rankingSyncMonthKeys,
   resolveRankingSyncLessons,
   retrySync,
   runSyncStage,
+  selectCodeDogTransport,
   selectRankingSyncLessons
 } from "../src/ranking-sync.js";
 
@@ -48,6 +52,47 @@ function equal(actual, expected, message = "") {
   }
 }
 function ok(value, message = "expected truthy value") { if (!value) throw new Error(message); }
+
+let crmTeacherIdForTest = "";
+window.addEventListener("message", (event) => {
+  const message = event.data;
+  if (event.source !== window || message?.channel !== "crm-learning-alert:v1" || message.direction !== "to-page" || message.type !== "STATE_REQUEST" || !crmTeacherIdForTest) return;
+  window.postMessage({
+    channel: "crm-learning-alert:v1",
+    direction: "from-page",
+    requestId: message.requestId,
+    type: "RESPONSE",
+    ok: true,
+    result: {
+      captures: {
+        campInfo: { url: `https://api-live-class-crm.codemao.cn/live/camp/getCampInfo?internalTeacherId=${crmTeacherIdForTest}` }
+      }
+    }
+  }, location.origin);
+});
+
+function installChromeMock(initial = {}) {
+  const values = structuredClone(initial);
+  const chromeApi = globalThis.chrome;
+  Object.defineProperty(chromeApi, "runtime", {
+    configurable: true,
+    value: {
+      getManifest: () => ({ version: "1.3.1" }),
+      sendMessage: async () => ({ ok: false, error: "unexpected background request" })
+    }
+  });
+  Object.defineProperty(chromeApi, "storage", {
+    configurable: true,
+    value: {
+      local: {
+        get: async (key) => ({ [key]: values[key] }),
+        set: async (patch) => Object.assign(values, patch),
+        remove: async (key) => { delete values[key]; }
+      }
+    }
+  });
+  return values;
+}
 
 test("CRM 教师 ID 优先从已捕获请求中识别", () => {
   equal(teacherIdFromState({
@@ -67,6 +112,114 @@ test("同步识别浏览器网络错误和临时服务错误", () => {
   ok(isTransientSyncError(new Error("请求超时")));
   equal(isTransientSyncError(new Error("CodeDog 请求失败（401）")), false);
   equal(isTransientSyncError(new Error("选择的营期不存在")), false);
+});
+
+test("CodeDog 探针优先选择内容脚本直连", async () => {
+  const calls = [];
+  const transport = await selectCodeDogTransport({
+    force: true,
+    direct: async (path) => { calls.push(`direct:${path}`); return { ok: true }; },
+    background: async (path) => { calls.push(`background:${path}`); return { ok: true }; }
+  });
+  equal(transport.name, "direct");
+  equal(calls, ["direct:/api/public/rankings/extension/status"]);
+});
+
+test("CodeDog 直连探针失败后回退后台代理", async () => {
+  const calls = [];
+  const transport = await selectCodeDogTransport({
+    force: true,
+    direct: async (path) => { calls.push(`direct:${path}`); throw new TypeError("Failed to fetch"); },
+    background: async (path) => { calls.push(`background:${path}`); return { ok: true }; }
+  });
+  equal(transport.name, "background");
+  equal(calls, [
+    "direct:/api/public/rankings/extension/status",
+    "background:/api/public/rankings/extension/status"
+  ]);
+});
+
+test("CodeDog POST 失败后不跨通道重复发送", async () => {
+  let directPosts = 0;
+  let backgroundCalls = 0;
+  await selectCodeDogTransport({
+    force: true,
+    direct: async (path, options) => {
+      if (options.method === "GET") return { ok: true };
+      directPosts += 1;
+      throw new TypeError("Failed to fetch");
+    },
+    background: async () => { backgroundCalls += 1; return { ok: true }; }
+  });
+  let message = "";
+  try {
+    await codeDogApi("/api/public/rankings/extension/bootstrap", { method: "POST" });
+  } catch (error) {
+    message = error.message;
+  }
+  equal(directPosts, 1);
+  equal(backgroundCalls, 0);
+  equal(message, "无法连接 CodeDog，请检查网络后重试");
+  equal(codeDogNetworkMessage(new TypeError("Failed to fetch")), "无法连接 CodeDog，请检查网络后重试");
+});
+
+test("旧版设备令牌通过 session 恢复且不创建新设备", async () => {
+  crmTeacherIdForTest = "29413";
+  const connectionKey = "crmLearningAlert.rankingConnection";
+  const values = installChromeMock({ [connectionKey]: { token: "legacy-token" } });
+  let bootstrapCalls = 0;
+  await selectCodeDogTransport({
+    force: true,
+    direct: async (path, options = {}) => {
+      if (path.endsWith("/status")) return { ok: true };
+      if (path.endsWith("/session")) {
+        equal(options.headers.Authorization, "Bearer legacy-token");
+        return { deviceId: 1, username: "admin", teacherId: "CD-55E19DCA", crmTeacherId: "29413" };
+      }
+      if (path.endsWith("/bootstrap")) bootstrapCalls += 1;
+      return {};
+    }
+  });
+
+  const status = await ensureRankingConnection();
+
+  equal(bootstrapCalls, 0);
+  equal(status.connected, true);
+  equal(status.deviceId, 1);
+  equal(status.username, "admin");
+  equal(status.teacherId, "CD-55E19DCA");
+  equal(status.crmTeacherId, "29413");
+  equal(values[connectionKey].token, "legacy-token");
+});
+
+test("教师不匹配时仅 bootstrap 一次并切换归属", async () => {
+  crmTeacherIdForTest = "29413";
+  const connectionKey = "crmLearningAlert.rankingConnection";
+  const hashesKey = "crmLearningAlert.rankingHashes";
+  const values = installChromeMock({
+    [connectionKey]: { token: "old-token", crmTeacherId: "10000" },
+    [hashesKey]: { old: "hash" }
+  });
+  let bootstrapCalls = 0;
+  await selectCodeDogTransport({
+    force: true,
+    direct: async (path) => {
+      if (path.endsWith("/status")) return { ok: true };
+      if (path.endsWith("/session")) return { deviceId: 8, username: "other", teacherId: "CD-OTHER", crmTeacherId: "10000" };
+      if (path.endsWith("/bootstrap")) {
+        bootstrapCalls += 1;
+        return { token: "new-token", deviceId: 9, username: "admin", teacherId: "CD-55E19DCA", crmTeacherId: "29413" };
+      }
+      return {};
+    }
+  });
+
+  const status = await ensureRankingConnection();
+
+  equal(bootstrapCalls, 1);
+  equal(status.crmTeacherId, "29413");
+  equal(values[connectionKey].token, "new-token");
+  equal(values[hashesKey], undefined);
 });
 
 test("同步网络错误按指数间隔重试后成功", async () => {
@@ -648,13 +801,15 @@ test("扩展模块均可加载", async () => {
 test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
+  equal(manifest.version, "1.3.1");
   equal(manifest.permissions, ["storage"]);
+  equal(manifest.background, { service_worker: "src/background.js", type: "module" });
   ok(manifest.host_permissions.includes("https://codedog.online/*"));
   ok(manifest.host_permissions.filter((origin) => origin !== "https://codedog.online/*").every((origin) => origin.includes("codemao.cn")));
 });
 
-test("页面脚本语法有效", async () => {
-  for (const path of ["../src/page-bridge.js", "../src/content.js"]) {
+test("页面和后台脚本语法有效", async () => {
+  for (const path of ["../src/page-bridge.js", "../src/content.js", "../src/background.js"]) {
     const source = await fetch(path).then((response) => response.text());
     ok(new Function(source));
   }

@@ -266,6 +266,10 @@ export class AlertUI {
       this.callbacks.onRankingSync?.();
       return;
     }
+    if (button.dataset.action === "ranking-retry") {
+      this.callbacks.onRankingRetry?.();
+      return;
+    }
     if (button.dataset.action === "reset") {
       this.resetSearchConditions();
       return;
@@ -446,6 +450,7 @@ export class AlertUI {
       target.innerHTML = `<div class="crm-alert-ranking__bar">
         <strong>积分榜</strong>
         <span>${escapeHtml(ranking.message || "正在识别 CRM 教师")}</span>
+        ${ranking.syncing ? "" : '<button type="button" data-action="ranking-retry">重试</button>'}
       </div>`;
       return;
     }

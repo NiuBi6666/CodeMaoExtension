@@ -1,5 +1,7 @@
 const CODEDOG_ORIGIN = "https://codedog.online";
 const ALLOWED_ENDPOINTS = new Set([
+  "/api/public/rankings/extension/status",
+  "/api/public/rankings/extension/session",
   "/api/public/rankings/extension/bootstrap",
   "/api/public/rankings/extension/import"
 ]);

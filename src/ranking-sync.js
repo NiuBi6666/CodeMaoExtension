@@ -1,6 +1,7 @@
 import { collectAllIssues, loadClassCatalog, loadCrmTeacherIdentity, loadLessonCatalog, resolveLessonEndedAt } from "./crm-adapter.js";
 import { issueMonthKey } from "./core.js";
 
+const CODEDOG_ORIGIN = "https://codedog.online";
 const CONNECTION_KEY = "crmLearningAlert.rankingConnection";
 const CAMP_KEY = "crmLearningAlert.rankingCampId";
 const HASHES_KEY = "crmLearningAlert.rankingHashes";
@@ -10,13 +11,42 @@ const SCHEDULES = new Set(["11:30", "16:00", "18:30", "21:05"]);
 const storage = () => chrome.storage.local;
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 let bootstrapPromise = null;
+let activeTransport = null;
 
 async function connection() {
   const data = await storage().get(CONNECTION_KEY);
   return data[CONNECTION_KEY] || null;
 }
 
-async function api(path, options = {}) {
+function apiError(message, status = 0) {
+  const error = new Error(message);
+  error.status = Number(status || 0);
+  return error;
+}
+
+async function parseResponse(response) {
+  const contentType = response.headers.get("content-type") || "";
+  const payload = contentType.includes("application/json") ? await response.json() : {};
+  if (!response.ok) throw apiError(payload.error || `CodeDog 请求失败（${response.status}）`, response.status);
+  return payload;
+}
+
+async function directRequest(path, options = {}) {
+  let response;
+  try {
+    response = await fetch(`${CODEDOG_ORIGIN}${path}`, {
+      method: options.method || "GET",
+      headers: options.headers || {},
+      body: options.body || undefined,
+      credentials: "omit"
+    });
+  } catch (error) {
+    throw apiError(error?.message || "CodeDog 网络请求失败");
+  }
+  return parseResponse(response);
+}
+
+async function backgroundRequest(path, options = {}) {
   const response = await chrome.runtime.sendMessage({
     type: "CODEDOG_API",
     path,
@@ -27,11 +57,50 @@ async function api(path, options = {}) {
     }
   });
   if (!response?.ok) {
-    const error = new Error(response?.error || "CodeDog 后台请求失败");
-    error.status = Number(response?.status || 0);
-    throw error;
+    throw apiError(response?.error || "CodeDog 后台请求失败", response?.status);
   }
   return response.payload;
+}
+
+export function codeDogNetworkMessage(error) {
+  const message = String(error?.message || error || "");
+  if (/failed to fetch|networkerror|load failed|receiving end does not exist|message port closed|网络请求失败/i.test(message)) {
+    return "无法连接 CodeDog，请检查网络后重试";
+  }
+  return message || "无法连接 CodeDog，请稍后重试";
+}
+
+export async function selectCodeDogTransport({
+  force = false,
+  direct = directRequest,
+  background = backgroundRequest
+} = {}) {
+  if (!force && activeTransport) return activeTransport;
+  const probeOptions = { method: "GET" };
+  try {
+    await direct("/api/public/rankings/extension/status", probeOptions);
+    activeTransport = { name: "direct", request: direct };
+    return activeTransport;
+  } catch (directError) {
+    try {
+      await background("/api/public/rankings/extension/status", probeOptions);
+      activeTransport = { name: "background", request: background };
+      return activeTransport;
+    } catch (backgroundError) {
+      activeTransport = null;
+      throw apiError(codeDogNetworkMessage(backgroundError || directError));
+    }
+  }
+}
+
+export async function codeDogApi(path, options = {}) {
+  const transport = await selectCodeDogTransport();
+  try {
+    return await transport.request(path, options);
+  } catch (error) {
+    if (!Number(error?.status || 0)) activeTransport = null;
+    throw apiError(codeDogNetworkMessage(error), error?.status);
+  }
 }
 
 export async function rankingStatus() {
@@ -52,8 +121,30 @@ async function ensureConnection({ force = false } = {}) {
   const task = (async () => {
     const identity = await loadCrmTeacherIdentity();
     const current = await connection();
-    if (!force && current?.token && current.crmTeacherId === identity.crmTeacherId) return current;
-    const result = await api("/api/public/rankings/extension/bootstrap", {
+    if (current?.token) {
+      try {
+        const session = await codeDogApi("/api/public/rankings/extension/session", {
+          method: "GET",
+          headers: { Authorization: `Bearer ${current.token}` }
+        });
+        if (session.crmTeacherId === identity.crmTeacherId) {
+          const restored = {
+            ...current,
+            deviceId: session.deviceId,
+            username: session.username,
+            teacherId: session.teacherId,
+            crmTeacherId: session.crmTeacherId,
+            lastMessage: "已自动连接"
+          };
+          await storage().set({ [CONNECTION_KEY]: restored });
+          return restored;
+        }
+      } catch (error) {
+        if (error?.status !== 401) throw error;
+        await storage().remove(CONNECTION_KEY);
+      }
+    }
+    const result = await codeDogApi("/api/public/rankings/extension/bootstrap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -86,6 +177,7 @@ async function ensureConnection({ force = false } = {}) {
 }
 
 export async function ensureRankingConnection(options = {}) {
+  if (options.force) await selectCodeDogTransport({ force: true });
   await ensureConnection(options);
   return rankingStatus();
 }
@@ -330,7 +422,7 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
       const batchLabel = `上传 CodeDog 积分（${batchNumber}/${importBatches.length}）`;
       onProgress({ completed: total, total, label: batchLabel });
       const batchResult = await runSyncStage(batchLabel, async () => {
-        const upload = () => api("/api/public/rankings/extension/import", {
+        const upload = () => codeDogApi("/api/public/rankings/extension/import", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}` },
           body: JSON.stringify(importPayload)

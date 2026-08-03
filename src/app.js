@@ -69,6 +69,7 @@ export async function startApp() {
     onFilterChange: (type) => loadCategory(type),
     onPromote: promoteHomeClass,
     onRestore: restoreHomeClass,
+    onRankingRetry: () => refreshRankingConnection({ force: true }),
     onRankingSync: async () => {
       updateRanking({ syncing: true, message: "正在准备训练营数据…" });
       try {
@@ -98,12 +99,13 @@ export async function startApp() {
     onState: updateRanking
   });
 
-  async function refreshRankingConnection() {
+  async function refreshRankingConnection(options = {}) {
     updateRanking({ syncing: true, message: "正在识别 CRM 教师…" });
     try {
-      updateRanking({ ...(await ensureRankingConnection()), syncing: false, message: "已自动连接" });
+      updateRanking({ syncing: true, message: "正在连接 CodeDog…" });
+      updateRanking({ ...(await ensureRankingConnection(options)), syncing: false, message: "已自动连接" });
     } catch (error) {
-      updateRanking({ ...(await rankingStatus()), syncing: false, message: error.message || "自动连接失败" });
+      updateRanking({ ...(await rankingStatus()), connected: false, syncing: false, message: error.message || "无法连接 CodeDog，请稍后重试" });
     }
   }
 
