@@ -31,7 +31,9 @@ import { createXlsxWorkbook } from "../src/xlsx-exporter.js";
 import {
   buildRankingImportBatches,
   isTransientSyncError,
+  noRankingSyncLessonsMessage,
   rankingSyncMonthKeys,
+  resolveRankingSyncLessons,
   retrySync,
   runSyncStage,
   selectRankingSyncLessons
@@ -141,6 +143,61 @@ test("积分同步只选择目标自然月内且有时间的课节", () => {
   equal(
     selectRankingSyncLessons(lessons, "2026-08-08T12:00:00+08:00").map((lesson) => lesson.value),
     ["august-start", "august-end"]
+  );
+});
+
+test("积分同步会从课节学情补齐目录缺失的日期后再筛选", async () => {
+  const calls = [];
+  const result = await resolveRankingSyncLessons({
+    lessons: [
+      { value: "known", label: "P1", endedAt: "2026-08-01 10:00:00" },
+      { value: "resolved", label: "P2", endedAt: "" },
+      { value: "old", label: "P3", endedAt: "" }
+    ],
+    campId: "camp-1",
+    classId: "class-1",
+    now: "2026-08-08T12:00:00+08:00",
+    resolveLessonDate: async ({ lessonOption }) => {
+      calls.push(lessonOption.value);
+      return { endedAt: lessonOption.value === "resolved" ? "2026-08-02 10:00:00" : "2026-07-30 10:00:00" };
+    }
+  });
+  equal(calls, ["resolved", "old"]);
+  equal(result.lessons.map((lesson) => [lesson.value, lesson.endedAt]), [
+    ["known", "2026-08-01 10:00:00"],
+    ["resolved", "2026-08-02 10:00:00"]
+  ]);
+  equal(result.unresolvedCount, 0);
+});
+
+test("积分同步月初会保留补齐日期后的本月和上月课节", async () => {
+  const dates = { july: "2026-07-31 10:00:00", august: "2026-08-01 10:00:00", june: "2026-06-30 10:00:00" };
+  const result = await resolveRankingSyncLessons({
+    lessons: Object.keys(dates).map((value) => ({ value, endedAt: "" })),
+    campId: "camp-1",
+    classId: "class-1",
+    now: "2026-08-07T12:00:00+08:00",
+    resolveLessonDate: async ({ lessonOption }) => ({ endedAt: dates[lessonOption.value] })
+  });
+  equal(result.lessons.map((lesson) => lesson.value), ["july", "august"]);
+});
+
+test("积分同步会警告无法补齐日期的课节且不误报营期无课", async () => {
+  const result = await resolveRankingSyncLessons({
+    lessons: [{ value: "resolved", label: "P1" }, { value: "unknown", label: "P2" }],
+    campId: "camp-1",
+    classId: "class-1",
+    now: "2026-08-03T12:00:00+08:00",
+    resolveLessonDate: async ({ lessonOption }) => lessonOption.value === "resolved"
+      ? { endedAt: "2026-08-01 10:00:00" }
+      : { endedAt: "" }
+  });
+  equal(result.lessons.map((lesson) => lesson.value), ["resolved"]);
+  equal(result.unresolvedCount, 1);
+  ok(result.warnings.some((warning) => warning.includes("1 个课节无法识别上课时间")));
+  equal(
+    noRankingSyncLessonsMessage(["2026-08", "2026-07"], 2),
+    "同步月份 2026-08、2026-07 没有确认属于目标月份的课节；另有 2 个课节无法识别上课时间"
   );
 });
 

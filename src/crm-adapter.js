@@ -692,7 +692,11 @@ export function selectLatestLessonJob(jobs, now = new Date(), lessonHint = null)
   };
 }
 
-async function fetchStudentPages(bridge, teacherId, camp, lesson, classId = "", { quicklyOperate = null, includeTotal = true } = {}) {
+async function fetchStudentPages(bridge, teacherId, camp, lesson, classId = "", {
+  quicklyOperate = null,
+  includeTotal = true,
+  firstPageOnly = false
+} = {}) {
   const pageSize = 200;
   const first = await bridge.replay("teachSearch", {
     teacherId,
@@ -705,7 +709,9 @@ async function fetchStudentPages(bridge, teacherId, camp, lesson, classId = "", 
     allClasses: !classId
   });
   const firstPage = extractStudentPage(first.data);
-  const pages = Math.min(20, Math.ceil(firstPage.total / Math.max(1, firstPage.pageSize || firstPage.records.length || pageSize)));
+  const pages = firstPageOnly
+    ? 1
+    : Math.min(20, Math.ceil(firstPage.total / Math.max(1, firstPage.pageSize || firstPage.records.length || pageSize)));
   const records = [...firstPage.records];
   const remainingPages = Array.from({ length: Math.max(0, pages - 1) }, (_, index) => index + 2);
   const [additionalRecords, totalResponse] = await Promise.all([
@@ -739,6 +745,42 @@ async function fetchStudentPages(bridge, teacherId, camp, lesson, classId = "", 
     records,
     dataUpdatedAt,
     lessonEndedAt: findLessonEndedAt(first.data, firstPage.records) || inferLessonEndedAt(dataUpdatedAt)
+  };
+}
+
+export async function resolveLessonEndedAt({ campId = "", classId = "", lessonOption = null }) {
+  const context = await loadCrmContext();
+  const { bridge, state, teacherId } = context;
+  if (!state.templates?.teachSearch) {
+    throw new Error("CRM 教学期查询尚未初始化，请刷新工作台后重试");
+  }
+  const selectedCampId = normalizeId(campId);
+  const selectedClassId = normalizeId(classId);
+  const camp = context.camps.find((item) => item.id === selectedCampId);
+  if (!camp) throw new Error("选择的营期不存在");
+  if (!selectedClassId) throw new Error("请先选择班级");
+  const lessonId = normalizeId(lessonOption?.value || lessonOption?.id);
+  if (!lessonId) throw new Error("课节缺少可识别 ID");
+  const lessonName = normalizeText(lessonOption?.label || lessonOption?.name) || lessonId;
+  const lesson = {
+    id: lessonId,
+    name: lessonName,
+    endedAt: lessonOption?.endedAt || "",
+    requestFields: {
+      id: lessonId,
+      lessonId,
+      campLessonId: lessonId,
+      name: lessonName,
+      lessonName,
+      ...(lessonOption?.requestFields || {})
+    }
+  };
+  const page = await fetchStudentPages(bridge, teacherId, camp, lesson, selectedClassId, {
+    firstPageOnly: true
+  });
+  return {
+    endedAt: lesson.endedAt || page.lessonEndedAt || "",
+    dataUpdatedAt: page.dataUpdatedAt || ""
   };
 }
 

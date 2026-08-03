@@ -1,4 +1,4 @@
-import { collectAllIssues, loadClassCatalog, loadLessonCatalog } from "./crm-adapter.js";
+import { collectAllIssues, loadClassCatalog, loadLessonCatalog, resolveLessonEndedAt } from "./crm-adapter.js";
 import { issueMonthKey } from "./core.js";
 
 const CODEDOG_ORIGIN = "https://codedog.online";
@@ -153,6 +153,49 @@ export function selectRankingSyncLessons(lessons, now = new Date()) {
   })));
 }
 
+export async function resolveRankingSyncLessons({
+  lessons = [],
+  campId,
+  classId,
+  now = new Date(),
+  resolveLessonDate = resolveLessonEndedAt,
+  onProgress = () => {}
+}) {
+  const monthKeys = new Set(rankingSyncMonthKeys(now));
+  const resolvedLessons = [];
+  const warnings = [];
+  let unresolvedCount = 0;
+  for (const [index, lesson] of lessons.entries()) {
+    let endedAt = lesson?.endedAt || "";
+    if (issueMonthKey({ lessonEndedAt: endedAt }) === "unknown") {
+      onProgress({
+        completed: index,
+        total: lessons.length,
+        label: `正在识别课节日期：${lesson?.label || lesson?.value || index + 1}`
+      });
+      try {
+        const resolved = await resolveLessonDate({ campId, classId, lessonOption: lesson });
+        endedAt = resolved?.endedAt || "";
+      } catch (error) {
+        warnings.push(`${lesson?.label || lesson?.value || "未知课节"}：${error?.message || "日期读取失败"}`);
+      }
+    }
+    const monthKey = issueMonthKey({ lessonEndedAt: endedAt });
+    if (monthKey === "unknown") unresolvedCount += 1;
+    else if (monthKeys.has(monthKey)) resolvedLessons.push({ ...lesson, endedAt });
+  }
+  if (unresolvedCount) warnings.push(`${unresolvedCount} 个课节无法识别上课时间，已跳过`);
+  return { lessons: resolvedLessons, warnings, unresolvedCount };
+}
+
+export function noRankingSyncLessonsMessage(syncMonths, unresolvedCount = 0) {
+  const prefix = `同步月份 ${syncMonths.join("、")}`;
+  if (unresolvedCount) {
+    return `${prefix} 没有确认属于目标月份的课节；另有 ${unresolvedCount} 个课节无法识别上课时间`;
+  }
+  return `${prefix} 没有已上课课节`;
+}
+
 export async function syncRankingCamp({ campId, roster, overrides, force = false, onProgress = () => {}, now = new Date() }) {
   const current = await connection();
   if (!current?.token) throw new Error("请先连接 CodeDog 积分系统");
@@ -170,13 +213,22 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
     })
   ]);
   const syncMonths = rankingSyncMonthKeys(now);
-  const syncLessons = selectRankingSyncLessons(lessonCatalog.lessons, now);
-  if (!syncLessons.length) throw new Error(`同步月份 ${syncMonths.join("、")} 没有可识别的课节`);
+  const dateResolution = await resolveRankingSyncLessons({
+    lessons: lessonCatalog.lessons,
+    campId: selectedCampId,
+    classId: classCatalog.classes[0]?.value,
+    now,
+    onProgress
+  });
+  const syncLessons = dateResolution.lessons;
+  if (!syncLessons.length) {
+    throw new Error(noRankingSyncLessonsMessage(syncMonths, dateResolution.unresolvedCount));
+  }
   onProgress({ completed: 0, total: 0, label: `同步范围：${syncMonths.join("、")}` });
   const classes = [];
   const total = classCatalog.classes.length * syncLessons.length;
   let completed = 0;
-  const warnings = [];
+  const warnings = [...dateResolution.warnings];
 
   for (const classOption of classCatalog.classes) {
     const lessons = [];
