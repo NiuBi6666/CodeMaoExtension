@@ -1,7 +1,6 @@
-import { collectAllIssues, loadClassCatalog, loadLessonCatalog, resolveLessonEndedAt } from "./crm-adapter.js";
+import { collectAllIssues, loadClassCatalog, loadCrmTeacherIdentity, loadLessonCatalog, resolveLessonEndedAt } from "./crm-adapter.js";
 import { issueMonthKey } from "./core.js";
 
-const CODEDOG_ORIGIN = "https://codedog.online";
 const CONNECTION_KEY = "crmLearningAlert.rankingConnection";
 const CAMP_KEY = "crmLearningAlert.rankingCampId";
 const HASHES_KEY = "crmLearningAlert.rankingHashes";
@@ -10,6 +9,7 @@ const SCHEDULES = new Set(["11:30", "16:00", "18:30", "21:05"]);
 
 const storage = () => chrome.storage.local;
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+let bootstrapPromise = null;
 
 async function connection() {
   const data = await storage().get(CONNECTION_KEY);
@@ -17,10 +17,21 @@ async function connection() {
 }
 
 async function api(path, options = {}) {
-  const response = await fetch(`${CODEDOG_ORIGIN}${path}`, options);
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || `CodeDog 请求失败（${response.status}）`);
-  return payload;
+  const response = await chrome.runtime.sendMessage({
+    type: "CODEDOG_API",
+    path,
+    request: {
+      method: options.method || "POST",
+      headers: options.headers || {},
+      body: options.body || ""
+    }
+  });
+  if (!response?.ok) {
+    const error = new Error(response?.error || "CodeDog 后台请求失败");
+    error.status = Number(response?.status || 0);
+    throw error;
+  }
+  return response.payload;
 }
 
 export async function rankingStatus() {
@@ -28,27 +39,54 @@ export async function rankingStatus() {
   return {
     connected: Boolean(current?.token),
     deviceId: current?.deviceId || null,
+    username: current?.username || "",
+    teacherId: current?.teacherId || "",
+    crmTeacherId: current?.crmTeacherId || "",
     lastSyncAt: current?.lastSyncAt || "",
     message: current?.lastMessage || ""
   };
 }
 
-export async function connectRanking(code) {
-  const normalized = String(code || "").replace(/[^0-9]/g, "");
-  if (normalized.length !== 8) throw new Error("请输入 8 位连接码");
-  const result = await api("/api/public/rankings/extension/connect", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: normalized, deviceName: `CRM 扩展 ${chrome.runtime.getManifest().version}` })
-  });
-  await storage().set({
-    [CONNECTION_KEY]: { token: result.token, deviceId: result.deviceId, connectedAt: new Date().toISOString() }
-  });
-  return rankingStatus();
+async function ensureConnection({ force = false } = {}) {
+  if (!force && bootstrapPromise) return bootstrapPromise;
+  const task = (async () => {
+    const identity = await loadCrmTeacherIdentity();
+    const current = await connection();
+    if (!force && current?.token && current.crmTeacherId === identity.crmTeacherId) return current;
+    const result = await api("/api/public/rankings/extension/bootstrap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        crmTeacherId: identity.crmTeacherId,
+        deviceName: `CRM 扩展 ${chrome.runtime.getManifest().version}`
+      })
+    });
+    const next = {
+      token: result.token,
+      deviceId: result.deviceId,
+      username: result.username,
+      teacherId: result.teacherId,
+      crmTeacherId: result.crmTeacherId || identity.crmTeacherId,
+      connectedAt: new Date().toISOString(),
+      lastSyncAt: current?.crmTeacherId === identity.crmTeacherId ? current.lastSyncAt || "" : "",
+      lastMessage: "已自动连接"
+    };
+    if (current?.crmTeacherId && current.crmTeacherId !== identity.crmTeacherId) {
+      await storage().remove(HASHES_KEY);
+    }
+    await storage().set({ [CONNECTION_KEY]: next });
+    return next;
+  })();
+  if (!force) bootstrapPromise = task;
+  try {
+    return await task;
+  } finally {
+    if (bootstrapPromise === task) bootstrapPromise = null;
+  }
 }
 
-export async function disconnectRanking() {
-  await storage().remove([CONNECTION_KEY, HASHES_KEY]);
+export async function ensureRankingConnection(options = {}) {
+  await ensureConnection(options);
   return rankingStatus();
 }
 
@@ -197,8 +235,7 @@ export function noRankingSyncLessonsMessage(syncMonths, unresolvedCount = 0) {
 }
 
 export async function syncRankingCamp({ campId, roster, overrides, force = false, onProgress = () => {}, now = new Date() }) {
-  const current = await connection();
-  if (!current?.token) throw new Error("请先连接 CodeDog 积分系统");
+  let current = await ensureConnection();
   const selectedCampId = String(campId || "").trim();
   if (!selectedCampId) throw new Error("请先选择需要同步的训练营");
   await rememberRankingCamp(selectedCampId);
@@ -284,18 +321,28 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
   const stored = await storage().get(HASHES_KEY);
   const hashes = stored[HASHES_KEY] || {};
   let result = { changedRows: 0, unchangedRows: rowCount, rejectedRows: 0, skipped: true };
-  if (force || hashes[selectedCampId] !== hash) {
+  const hashKey = `${current.crmTeacherId}:${selectedCampId}`;
+  if (force || hashes[hashKey] !== hash) {
     const importBatches = buildRankingImportBatches(payload);
     result = { changedRows: 0, unchangedRows: 0, rejectedRows: 0, skipped: false, batchCount: importBatches.length };
     for (const [batchIndex, importPayload] of importBatches.entries()) {
       const batchNumber = batchIndex + 1;
       const batchLabel = `上传 CodeDog 积分（${batchNumber}/${importBatches.length}）`;
       onProgress({ completed: total, total, label: batchLabel });
-      const batchResult = await runSyncStage(batchLabel, () => api("/api/public/rankings/extension/import", {
+      const batchResult = await runSyncStage(batchLabel, async () => {
+        const upload = () => api("/api/public/rankings/extension/import", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.token}` },
           body: JSON.stringify(importPayload)
-        }), {
+        });
+        try {
+          return await upload();
+        } catch (error) {
+          if (error?.status !== 401) throw error;
+          current = await ensureConnection({ force: true });
+          return upload();
+        }
+      }, {
           onRetry: ({ nextAttempt }) => onProgress({
             completed: total,
             total,
@@ -306,7 +353,7 @@ export async function syncRankingCamp({ campId, roster, overrides, force = false
       result.unchangedRows += Number(batchResult.unchangedRows || 0);
       result.rejectedRows += Number(batchResult.rejectedRows || 0);
     }
-    hashes[selectedCampId] = hash;
+    hashes[hashKey] = hash;
     await storage().set({ [HASHES_KEY]: hashes });
   }
   const lastSyncAt = new Date().toISOString();

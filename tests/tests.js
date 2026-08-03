@@ -25,7 +25,8 @@ import {
   findDataUpdatedAt,
   normalizeCompletionRate,
   normalizeStudentRecord,
-  selectLatestLessonJob
+  selectLatestLessonJob,
+  teacherIdFromState
 } from "../src/crm-adapter.js";
 import { createXlsxWorkbook } from "../src/xlsx-exporter.js";
 import {
@@ -47,6 +48,17 @@ function equal(actual, expected, message = "") {
   }
 }
 function ok(value, message = "expected truthy value") { if (!value) throw new Error(message); }
+
+test("CRM 教师 ID 优先从已捕获请求中识别", () => {
+  equal(teacherIdFromState({
+    captures: {
+      campInfo: { url: "https://api-live-class-crm.codemao.cn/live/camp/getCampInfo?internalTeacherId=29413" }
+    }
+  }, []), "29413");
+  equal(teacherIdFromState({ captures: {} }, [
+    { name: "https://api-live-class-crm.codemao.cn/live/camp/queryLessonByCampId?internalTeacherId=555" }
+  ]), "555");
+});
 
 test("同步识别浏览器网络错误和临时服务错误", () => {
   ok(isTransientSyncError(new TypeError("Failed to fetch")));

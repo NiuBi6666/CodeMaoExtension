@@ -516,7 +516,7 @@ export function findDataUpdatedAt(payload) {
   return result;
 }
 
-function teacherIdFromState(state) {
+export function teacherIdFromState(state, resourceEntries = performance.getEntriesByType?.("resource") || []) {
   for (const capture of Object.values(state.captures || {})) {
     try {
       const id = new URL(capture.url).searchParams.get("internalTeacherId");
@@ -525,7 +525,7 @@ function teacherIdFromState(state) {
       // Continue searching other captured requests.
     }
   }
-  for (const entry of performance.getEntriesByType?.("resource") || []) {
+  for (const entry of resourceEntries) {
     try {
       const id = new URL(entry.name).searchParams.get("internalTeacherId");
       if (id) return id;
@@ -534,6 +534,13 @@ function teacherIdFromState(state) {
     }
   }
   return "";
+}
+
+export async function loadCrmTeacherIdentity() {
+  const state = await getBridge().state();
+  const teacherId = teacherIdFromState(state);
+  if (!teacherId) throw new Error("无法识别当前教师，请确认已登录并刷新 CRM 工作台");
+  return { crmTeacherId: String(teacherId), identifiedAt: new Date().toISOString() };
 }
 
 async function loadCrmContext() {

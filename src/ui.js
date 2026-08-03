@@ -123,7 +123,6 @@ export class AlertUI {
     this.lessonDraft = [];
     this.copyFeedback = "";
     this.exportFeedback = "";
-    this.rankingCodeDraft = "";
     this.queryDraft = "";
     this.copyFeedbackTimer = null;
     this.exportFeedbackTimer = null;
@@ -263,16 +262,8 @@ export class AlertUI {
   handleClick(event) {
     const button = event.target.closest("button[data-action], button[data-filter-type], button[data-row-action], button[data-copy-ids], button[data-export-excel], button[data-lesson-menu], button[data-lesson-clear], button[data-lesson-apply]");
     if (!button) return;
-    if (button.dataset.action === "ranking-connect") {
-      this.callbacks.onRankingConnect?.(this.rankingCodeDraft);
-      return;
-    }
     if (button.dataset.action === "ranking-sync") {
       this.callbacks.onRankingSync?.();
-      return;
-    }
-    if (button.dataset.action === "ranking-disconnect") {
-      this.callbacks.onRankingDisconnect?.();
       return;
     }
     if (button.dataset.action === "reset") {
@@ -372,10 +363,6 @@ export class AlertUI {
   }
 
   handleInput(event) {
-    if (event.target.dataset.rankingCode !== undefined) {
-      this.rankingCodeDraft = event.target.value.replace(/[^0-9-]/g, "").slice(0, 9);
-      return;
-    }
     if (event.target.dataset.filter === "query") {
       this.queryDraft = event.target.value;
       this.copyFeedback = "";
@@ -458,18 +445,15 @@ export class AlertUI {
     if (!ranking.connected) {
       target.innerHTML = `<div class="crm-alert-ranking__bar">
         <strong>积分榜</strong>
-        <input data-ranking-code value="${escapeHtml(this.rankingCodeDraft)}" inputmode="numeric" autocomplete="one-time-code" placeholder="输入连接码" aria-label="CodeDog 连接码"${ranking.syncing ? " disabled" : ""}>
-        <button type="button" data-action="ranking-connect"${ranking.syncing ? " disabled" : ""}>连接</button>
-        <span>${escapeHtml(ranking.message || "未连接")}</span>
+        <span>${escapeHtml(ranking.message || "正在识别 CRM 教师")}</span>
       </div>`;
       return;
     }
     const lastSync = ranking.lastSyncAt ? formatDate(ranking.lastSyncAt) : "尚未同步";
     target.innerHTML = `<div class="crm-alert-ranking__bar is-connected">
-      <strong>积分榜</strong><span>${escapeHtml(ranking.message || lastSync)}</span>
+      <strong>${escapeHtml(ranking.username || "积分榜")}</strong><span>${escapeHtml(ranking.teacherId || "")} · ${escapeHtml(ranking.message || lastSync)}</span>
       <button type="button" data-action="ranking-sync"${ranking.syncing || !this.state.selection.campId ? " disabled" : ""}>${ranking.syncing ? "同步中…" : "立即同步"}</button>
-      <button type="button" data-action="ranking-disconnect"${ranking.syncing ? " disabled" : ""}>断开</button>
-      <small>${escapeHtml(lastSync)}</small>
+      <small>CRM ${escapeHtml(ranking.crmTeacherId || "-")} · ${escapeHtml(lastSync)}</small>
     </div>`;
   }
 

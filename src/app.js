@@ -6,8 +6,7 @@ import {
   setHomeClassOverride
 } from "./storage.js";
 import {
-  connectRanking,
-  disconnectRanking,
+  ensureRankingConnection,
   rankingStatus,
   rememberRankingCamp,
   startRankingScheduler,
@@ -48,6 +47,7 @@ export async function startApp() {
   const ui = new AlertUI({
     onOpen: async () => {
       ui.open();
+      await refreshRankingConnection();
       if (!catalog.camps.length && !loadingPromise) await loadCamps();
     },
     onClose: () => clearSearchState({ clearCamps: true }),
@@ -69,15 +69,6 @@ export async function startApp() {
     onFilterChange: (type) => loadCategory(type),
     onPromote: promoteHomeClass,
     onRestore: restoreHomeClass,
-    onRankingConnect: async (code) => {
-      updateRanking({ syncing: true, message: "正在连接 CodeDog…" });
-      try {
-        updateRanking({ ...(await connectRanking(code)), syncing: false, message: "连接成功" });
-      } catch (error) {
-        updateRanking({ syncing: false, message: error.message || "连接失败" });
-      }
-    },
-    onRankingDisconnect: async () => updateRanking({ ...(await disconnectRanking()), syncing: false, message: "已断开连接" }),
     onRankingSync: async () => {
       updateRanking({ syncing: true, message: "正在准备训练营数据…" });
       try {
@@ -100,11 +91,21 @@ export async function startApp() {
   ui.mount();
   ui.update({ roster, issues, meta, catalog, selection, ranking, summaryIssues: null });
   updateRanking(await rankingStatus());
+  void refreshRankingConnection();
   startRankingScheduler({
     getRoster: () => roster,
     getOverrides: () => overrides,
     onState: updateRanking
   });
+
+  async function refreshRankingConnection() {
+    updateRanking({ syncing: true, message: "正在识别 CRM 教师…" });
+    try {
+      updateRanking({ ...(await ensureRankingConnection()), syncing: false, message: "已自动连接" });
+    } catch (error) {
+      updateRanking({ ...(await rankingStatus()), syncing: false, message: error.message || "自动连接失败" });
+    }
+  }
 
   async function loadCamps() {
     if (loadingPromise) return loadingPromise;
