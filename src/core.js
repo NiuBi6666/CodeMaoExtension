@@ -98,6 +98,7 @@ export function hasCategoryWorkIssue(items) {
     const type = normalizeText(item.type).replace(/\s+/g, "");
     if (item.total <= 0) return false;
     if (/oj/i.test(type)) return item.passed < item.total;
+    if (/应用题|application/i.test(type)) return item.passed < item.total;
     if (/客观题|objective/i.test(type)) return item.submitted < item.total;
     return false;
   });

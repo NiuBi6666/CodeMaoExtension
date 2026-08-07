@@ -523,8 +523,10 @@ test("作业完成以通过数而不是提交数判定", () => {
   equal(incompleteHomework(items).map((item) => item.type), ["OJ题"]);
 });
 
-test("分类二次筛选中 OJ 看通过数，客观题只看提交数", () => {
+test("分类二次筛选中 OJ 和应用题看通过数，客观题只看提交数", () => {
   ok(hasCategoryWorkIssue([{ type: "OJ题", submitted: 5, total: 5, passed: 4 }]));
+  ok(hasCategoryWorkIssue([{ type: "应用题", submitted: 2, total: 2, passed: 1.46 }]));
+  equal(hasCategoryWorkIssue([{ type: "应用题", submitted: 2, total: 2, passed: 2 }]), false);
   ok(hasCategoryWorkIssue([{ type: "客观题", submitted: 0, total: 1, passed: 0 }]));
   equal(hasCategoryWorkIssue([{ type: "客观题", submitted: 1, total: 1, passed: 0 }]), false);
   equal(hasCategoryWorkIssue([{ type: "创作题", submitted: 0, total: 1, passed: 0 }]), false);
@@ -766,6 +768,23 @@ test("教学期课后拓展真实字段可独立标准化", () => {
   const extensions = extractExtensions(raw);
   equal(extensions.find((item) => item.type === "OJ题"), { type: "OJ题", submitted: 2, total: 2, passed: 1 });
   equal(incompleteHomework(extensions).map((item) => item.type), ["OJ题"]);
+});
+
+test("教学期应用题字段可在课中、课后和拓展中独立标准化", () => {
+  const raw = {
+    appClassinRightHomework: 1.5,
+    appClassinFinishHomework: 2,
+    appClassinAllHomework: 2,
+    appAfterclassRightHomework: 1.46,
+    appAfterclassFinishHomework: 2,
+    appAfterclassAllHomework: 2,
+    appAfterclassTzRightHomework: 1,
+    appAfterclassTzFinishHomework: 1,
+    appAfterclassTzAll: 1
+  };
+  equal(extractInClassHomework(raw).find((item) => item.type === "应用题"), { type: "应用题", submitted: 2, total: 2, passed: 1.5 });
+  equal(extractHomework(raw).find((item) => item.type === "应用题"), { type: "应用题", submitted: 2, total: 2, passed: 1.46 });
+  equal(extractExtensions(raw).find((item) => item.type === "应用题"), { type: "应用题", submitted: 1, total: 1, passed: 1 });
 });
 
 test("作业项目名和完成状态可标准化", () => {

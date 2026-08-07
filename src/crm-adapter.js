@@ -319,7 +319,8 @@ export function extractInClassHomework(record) {
   const exactGroups = [
     ["创作题", ["creationClassinRightHomework", "creationClassInRightHomework", "creationInclassRightHomework", "creationInClassRightHomework", "creationRightHomework"], ["creationClassinFinishHomework", "creationClassInFinishHomework", "creationInclassFinishHomework", "creationInClassFinishHomework", "creationFinishHomework"], ["creationClassinAllHomework", "creationClassInAllHomework", "creationInclassAllHomework", "creationInClassAllHomework", "creationAllHomework"]],
     ["OJ题", ["ojClassinRightHomework", "ojClassInRightHomework", "ojInclassRightHomework", "ojInClassRightHomework", "ojRightHomework"], ["ojClassinFinishHomework", "ojClassInFinishHomework", "ojInclassFinishHomework", "ojInClassFinishHomework", "ojFinishHomework"], ["ojClassinAllHomework", "ojClassInAllHomework", "ojInclassAllHomework", "ojInClassAllHomework", "ojAllHomework"]],
-    ["客观题", ["ptClassinRightHomework", "ptClassInRightHomework", "ptInclassRightHomework", "ptInClassRightHomework", "ptRightHomework"], ["ptClassinFinishHomework", "ptClassInFinishHomework", "ptInclassFinishHomework", "ptInClassFinishHomework", "ptFinishHomework"], ["ptClassinAllHomework", "ptClassInAllHomework", "ptInclassAllHomework", "ptInClassAllHomework", "ptAllHomework"]]
+    ["客观题", ["ptClassinRightHomework", "ptClassInRightHomework", "ptInclassRightHomework", "ptInClassRightHomework", "ptRightHomework"], ["ptClassinFinishHomework", "ptClassInFinishHomework", "ptInclassFinishHomework", "ptInClassFinishHomework", "ptFinishHomework"], ["ptClassinAllHomework", "ptClassInAllHomework", "ptInclassAllHomework", "ptInClassAllHomework", "ptAllHomework"]],
+    ["应用题", ["appClassinRightHomework"], ["appClassinFinishHomework"], ["appClassinAllHomework"]]
   ];
   const roots = [];
   for (const [key, value] of Object.entries(record || {})) {
@@ -343,7 +344,8 @@ export function extractHomework(record) {
   const exactGroups = [
     ["创作题", "creationAfterclassRightHomework", "creationAfterclassFinishHomework", "creationAfterclassAllHomework"],
     ["OJ题", "ojAfterclassRightHomework", "ojAfterclassFinishHomework", "ojAfterclassAllHomework"],
-    ["客观题", "ptAfterclassRightHomework", "ptAfterclassFinishHomework", "ptAfterclassAllHomework"]
+    ["客观题", "ptAfterclassRightHomework", "ptAfterclassFinishHomework", "ptAfterclassAllHomework"],
+    ["应用题", "appAfterclassRightHomework", "appAfterclassFinishHomework", "appAfterclassAllHomework"]
   ];
   const exactItems = exactGroups.flatMap(([type, rightKey, finishKey, allKey]) => {
     if (record?.[allKey] === undefined) return [];
@@ -372,7 +374,8 @@ export function extractExtensions(record) {
   const exactGroups = [
     ["创作题", "creationAfterclassTzRightHomework", "creationAfterclassTzFinishHomework", "creationAfterclassTzAll"],
     ["OJ题", "ojAfterclassTzkRightHomework", "ojAfterclassTzkFinishHomework", "ojAfterclassTzkAll"],
-    ["客观题", "ptAfterclassTzkRightHomework", "ptAfterclassTzFinishHomework", "ptAfterclassTzkAll"]
+    ["客观题", "ptAfterclassTzkRightHomework", "ptAfterclassTzFinishHomework", "ptAfterclassTzkAll"],
+    ["应用题", "appAfterclassTzRightHomework", "appAfterclassTzFinishHomework", "appAfterclassTzAll"]
   ];
   const exactItems = exactGroups.flatMap(([type, rightKey, finishKey, allKey]) => {
     if (record?.[allKey] === undefined) return [];
