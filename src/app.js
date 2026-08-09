@@ -47,7 +47,7 @@ export async function startApp() {
   const ui = new AlertUI({
     onOpen: async () => {
       ui.open();
-      await refreshRankingConnection();
+      if (!ranking.connected && !ranking.syncing) void refreshRankingConnection();
       if (!catalog.camps.length && !loadingPromise) await loadCamps();
     },
     onClose: () => clearSearchState({ clearCamps: true }),
