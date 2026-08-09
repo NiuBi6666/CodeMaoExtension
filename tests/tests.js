@@ -77,7 +77,7 @@ function installChromeMock(initial = {}) {
   Object.defineProperty(chromeApi, "runtime", {
     configurable: true,
     value: {
-      getManifest: () => ({ version: "1.3.1" }),
+      getManifest: () => ({ version: "1.3.3" }),
       sendMessage: async () => ({ ok: false, error: "unexpected background request" })
     }
   });
@@ -820,7 +820,7 @@ test("扩展模块均可加载", async () => {
 test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
-  equal(manifest.version, "1.3.1");
+  equal(manifest.version, "1.3.3");
   equal(manifest.permissions, ["storage"]);
   equal(manifest.background, { service_worker: "src/background.js", type: "module" });
   ok(manifest.host_permissions.includes("https://codedog.online/*"));
