@@ -275,6 +275,7 @@ export class AlertUI {
       return;
     }
     if (button.dataset.action === "refresh") {
+      this.commitQueryFilter();
       this.callbacks.onRefresh?.();
       return;
     }
@@ -384,6 +385,10 @@ export class AlertUI {
   handleKeyDown(event) {
     if (event.target.dataset.filter !== "query" || event.key !== "Enter" || event.isComposing) return;
     event.preventDefault();
+    this.commitQueryFilter();
+  }
+
+  commitQueryFilter() {
     this.state.filters.query = this.queryDraft.trim();
     this.copyFeedback = "";
     this.render();

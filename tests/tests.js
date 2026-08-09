@@ -29,6 +29,7 @@ import {
   teacherIdFromState
 } from "../src/crm-adapter.js";
 import { createXlsxWorkbook } from "../src/xlsx-exporter.js";
+import { AlertUI } from "../src/ui.js";
 import {
   buildRankingImportBatches,
   codeDogApi,
@@ -77,7 +78,7 @@ function installChromeMock(initial = {}) {
   Object.defineProperty(chromeApi, "runtime", {
     configurable: true,
     value: {
-      getManifest: () => ({ version: "1.3.5" }),
+      getManifest: () => ({ version: "1.3.6" }),
       sendMessage: async () => ({ ok: false, error: "unexpected background request" })
     }
   });
@@ -807,6 +808,18 @@ test("用户学情响应可自动生成学员和班级记录", () => {
   equal(page.records[0].currentClassId, "A班");
 });
 
+test("重新加载前会提交当前姓名或 ID 搜索条件", () => {
+  const refreshedQueries = [];
+  const ui = new AlertUI({ onRefresh: () => refreshedQueries.push(ui.state.filters.query) });
+  ui.render = () => undefined;
+  ui.queryDraft = "  凡叶  ";
+  ui.handleClick({
+    target: { closest: () => ({ dataset: { action: "refresh" } }) }
+  });
+  equal(ui.state.filters.query, "凡叶");
+  equal(refreshedQueries, ["凡叶"]);
+});
+
 test("扩展模块均可加载", async () => {
   const modules = await Promise.all([
     import("../src/app.js"),
@@ -820,7 +833,7 @@ test("扩展模块均可加载", async () => {
 test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
-  equal(manifest.version, "1.3.5");
+  equal(manifest.version, "1.3.6");
   equal(manifest.permissions, ["storage"]);
   equal(manifest.background, { service_worker: "src/background.js", type: "module" });
   ok(manifest.host_permissions.includes("https://codedog.online/*"));
