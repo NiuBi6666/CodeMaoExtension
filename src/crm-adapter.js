@@ -551,9 +551,14 @@ async function loadCrmContext() {
   const state = await bridge.state();
   const teacherId = teacherIdFromState(state);
   if (!teacherId) throw new Error("无法识别当前教师，请确认已登录并刷新 CRM 工作台");
-  const campCapture = state.captures?.campInfo || state.captures?.courseCampInfo;
-  if (!campCapture?.data) throw new Error("未读取到营期，请刷新 CRM 工作台后重试");
-  const camps = extractCamps(campCapture.data);
+  let campPayload = null;
+  try {
+    const response = await bridge.replay("campInfo", { teacherId });
+    campPayload = response?.data;
+  } catch (error) {
+    throw new Error(`营期实时查询失败：${error.message || "请刷新 CRM 工作台后重试"}`);
+  }
+  const camps = extractCamps(campPayload);
   if (!camps.length) throw new Error("当前账号没有可识别的营期");
   return { bridge, state, teacherId, camps };
 }

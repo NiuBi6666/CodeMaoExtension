@@ -221,6 +221,16 @@
 
   function buildReplayRequest(kind, params) {
     let template = templates.get(kind);
+    if (!template && kind === "campInfo") {
+      const authTemplate = templates.get("courseCampInfo") || templates.get("lessons") || templates.get("teachSearch");
+      if (!authTemplate) throw new Error("缺少 CRM 只读查询模板，请刷新页面后重试");
+      template = {
+        ...authTemplate,
+        method: "GET",
+        url: `${API_ORIGIN}/live/camp/getCampInfo`,
+        body: null
+      };
+    }
     if (!template && kind === "learningSituation") {
       const authTemplate = templates.get("teachSearch") || templates.get("campInfo") || templates.get("lessons");
       if (!authTemplate) throw new Error("缺少 CRM 只读查询模板，请刷新页面后重试");
@@ -256,7 +266,7 @@
     if (params.allClasses) url.searchParams.delete("classId");
     else if (params.classId != null) url.searchParams.set("classId", params.classId);
     if (params.campId != null) url.searchParams.set("campId", params.campId);
-    if (params.teacherId != null && (url.searchParams.has("internalTeacherId") || kind === "learningSituation" || kind === "courseCampInfo" || kind === "teachTotal")) {
+    if (params.teacherId != null && (url.searchParams.has("internalTeacherId") || kind === "campInfo" || kind === "learningSituation" || kind === "courseCampInfo" || kind === "teachTotal")) {
       url.searchParams.set("internalTeacherId", params.teacherId);
     }
     if (params.page != null) {
