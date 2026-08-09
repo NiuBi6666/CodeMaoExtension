@@ -78,7 +78,7 @@ function installChromeMock(initial = {}) {
   Object.defineProperty(chromeApi, "runtime", {
     configurable: true,
     value: {
-      getManifest: () => ({ version: "1.3.6" }),
+      getManifest: () => ({ version: "1.3.7" }),
       sendMessage: async () => ({ ok: false, error: "unexpected background request" })
     }
   });
@@ -516,18 +516,20 @@ test("0/0 题型不算未完成", () => {
   equal(incompleteHomework([{ type: "创作题", submitted: 0, total: 0 }, { type: "OJ题", submitted: 1, total: 2 }]).map((item) => item.type), ["OJ题"]);
 });
 
-test("作业完成以通过数而不是提交数判定", () => {
+test("OJ 题看通过数，应用题和客观题只看完成数", () => {
   const items = [
     { type: "OJ题", submitted: 2, total: 2, passed: 1 },
-    { type: "客观题", submitted: 2, total: 2, passed: 2 }
+    { type: "应用题", submitted: 2, total: 2, passed: 1.46 },
+    { type: "应用题", submitted: 1, total: 2, passed: 1 },
+    { type: "客观题", submitted: 2, total: 2, passed: 0 }
   ];
-  equal(incompleteHomework(items).map((item) => item.type), ["OJ题"]);
+  equal(incompleteHomework(items).map((item) => item.type), ["OJ题", "应用题"]);
 });
 
-test("分类二次筛选中 OJ 和应用题看通过数，客观题只看提交数", () => {
+test("分类二次筛选中 OJ 看通过数，应用题和客观题只看完成数", () => {
   ok(hasCategoryWorkIssue([{ type: "OJ题", submitted: 5, total: 5, passed: 4 }]));
-  ok(hasCategoryWorkIssue([{ type: "应用题", submitted: 2, total: 2, passed: 1.46 }]));
-  equal(hasCategoryWorkIssue([{ type: "应用题", submitted: 2, total: 2, passed: 2 }]), false);
+  ok(hasCategoryWorkIssue([{ type: "应用题", submitted: 1, total: 2, passed: 1 }]));
+  equal(hasCategoryWorkIssue([{ type: "应用题", submitted: 2, total: 2, passed: 1.46 }]), false);
   ok(hasCategoryWorkIssue([{ type: "客观题", submitted: 0, total: 1, passed: 0 }]));
   equal(hasCategoryWorkIssue([{ type: "客观题", submitted: 1, total: 1, passed: 0 }]), false);
   equal(hasCategoryWorkIssue([{ type: "创作题", submitted: 0, total: 1, passed: 0 }]), false);
@@ -833,7 +835,7 @@ test("扩展模块均可加载", async () => {
 test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
-  equal(manifest.version, "1.3.6");
+  equal(manifest.version, "1.3.7");
   equal(manifest.permissions, ["storage"]);
   equal(manifest.background, { service_worker: "src/background.js", type: "module" });
   ok(manifest.host_permissions.includes("https://codedog.online/*"));

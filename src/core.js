@@ -90,16 +90,20 @@ export function normalizeHomeworkItems(items) {
 }
 
 export function incompleteHomework(items) {
-  return normalizeHomeworkItems(items).filter((item) => item.total > 0 && item.passed < item.total);
+  return normalizeHomeworkItems(items).filter(isWorkItemIncomplete);
+}
+
+function isWorkItemIncomplete(item) {
+  if (item.total <= 0) return false;
+  const type = normalizeText(item.type).replace(/\s+/g, "");
+  if (/应用题|application|客观题|objective/i.test(type)) return item.submitted < item.total;
+  return item.passed < item.total;
 }
 
 export function hasCategoryWorkIssue(items) {
   return normalizeHomeworkItems(items).some((item) => {
     const type = normalizeText(item.type).replace(/\s+/g, "");
-    if (item.total <= 0) return false;
-    if (/oj/i.test(type)) return item.passed < item.total;
-    if (/应用题|application/i.test(type)) return item.passed < item.total;
-    if (/客观题|objective/i.test(type)) return item.submitted < item.total;
+    if (/oj|应用题|application|客观题|objective/i.test(type)) return isWorkItemIncomplete(item);
     return false;
   });
 }
