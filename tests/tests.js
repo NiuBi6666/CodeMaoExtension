@@ -202,14 +202,18 @@ test("教师不匹配时仅 bootstrap 一次并切换归属", async () => {
     [hashesKey]: { old: "hash" }
   });
   let bootstrapCalls = 0;
+  chrome.runtime.sendMessage = async message => {
+    equal(message.path, "/api/public/rankings/extension/bootstrap");
+    bootstrapCalls++;
+    return {ok:true,payload:{token:"new-token",deviceId:9,username:"admin",teacherId:"CD-55E19DCA",crmTeacherId:"29413"}};
+  };
   await selectCodeDogTransport({
     force: true,
     direct: async (path) => {
       if (path.endsWith("/status")) return { ok: true };
       if (path.endsWith("/session")) return { deviceId: 8, username: "other", teacherId: "CD-OTHER", crmTeacherId: "10000" };
       if (path.endsWith("/bootstrap")) {
-        bootstrapCalls += 1;
-        return { token: "new-token", deviceId: 9, username: "admin", teacherId: "CD-55E19DCA", crmTeacherId: "29413" };
+        throw new Error("bootstrap must use authenticated background channel");
       }
       return {};
     }
@@ -835,7 +839,7 @@ test("扩展模块均可加载", async () => {
 test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
-  equal(manifest.version, "1.3.7");
+  equal(manifest.version, "1.3.8");
   equal(manifest.permissions, ["storage"]);
   equal(manifest.background, { service_worker: "src/background.js", type: "module" });
   ok(manifest.host_permissions.includes("https://codedog.online/*"));

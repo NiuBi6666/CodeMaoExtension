@@ -72,3 +72,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\serve.ps1 -Port 8765
 - `http://127.0.0.1:8765/tests/mock.html`：桌面和窄屏界面预览。
 
 接口字段变化时优先修改 `src/crm-adapter.js` 和 `src/page-bridge.js`，名单格式与异常规则无需改变。
+
+## 安全连接（1.3.8）
+
+已有有效设备令牌继续自动连接。首次连接或令牌被撤销后，请先在同一 Chrome 登录 CodeDog 教师账号，再在 CRM 扩展重试。后台使用 CodeDog 会话及 CSRF 校验授权，教师必须有创建设备配对权限，且 CRM 映射必须属于该教师。不会向 CodeDog 发送 CRM Cookie，导入仍只使用设备令牌。

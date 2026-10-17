@@ -10,11 +10,22 @@ async function codedogRequest(message) {
   const path = String(message.path || "");
   if (!ALLOWED_ENDPOINTS.has(path)) throw new Error("不允许的 CodeDog 接口");
   const request = message.request || {};
+  const bootstrap = path === "/api/public/rankings/extension/bootstrap";
+  let headers = request.headers || {};
+  if (bootstrap) {
+    const auth = await fetch(`${CODEDOG_ORIGIN}/api/auth/me`, { credentials: "include", redirect: "error" });
+    if (!auth.ok) return { ok: false, status: auth.status, error: "首次连接请先登录 CodeDog 教师账号，再返回此处重试" };
+    const csrf = await fetch(`${CODEDOG_ORIGIN}/api/auth/csrf`, { credentials: "include", redirect: "error" });
+    if (!csrf.ok) return { ok: false, status: csrf.status, error: "无法完成连接授权，请重新登录 CodeDog 后重试" };
+    const { token } = await csrf.json();
+    if (!token) throw new Error("连接授权失败，请重新登录 CodeDog 后重试");
+    headers = { "Content-Type": "application/json", "X-XSRF-TOKEN": token };
+  }
   const response = await fetch(`${CODEDOG_ORIGIN}${path}`, {
     method: request.method || "POST",
-    headers: request.headers || {},
+    headers,
     body: request.body || undefined,
-    credentials: "omit",
+    credentials: bootstrap ? "include" : "omit",
     redirect: "error"
   });
   const contentType = response.headers.get("content-type") || "";

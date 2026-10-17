@@ -144,7 +144,9 @@ async function ensureConnection({ force = false } = {}) {
         await storage().remove(CONNECTION_KEY);
       }
     }
-    const result = await codeDogApi("/api/public/rankings/extension/bootstrap", {
+    // Provision once through the extension's authenticated CodeDog session.
+    // Do not fall back or retry a POST after a transport failure.
+    const result = await backgroundRequest("/api/public/rankings/extension/bootstrap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
