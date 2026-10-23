@@ -14,11 +14,7 @@ import {
 } from "./ranking-sync.js";
 import { AlertUI } from "./ui.js";
 
-const CATEGORY_OPERATIONS = {
-  inclass: 5,
-  homework: 6,
-  extension: 8
-};
+const HOMEWORK_CATEGORIES = new Set(["inclass", "homework", "extension"]);
 
 function normalizeLessonIds(values) {
   const source = Array.isArray(values) ? values : [values];
@@ -245,8 +241,7 @@ export async function startApp() {
 
   async function loadCategory(type) {
     activeFilterType = type || "all";
-    const quicklyOperate = CATEGORY_OPERATIONS[activeFilterType];
-    if (!quicklyOperate) {
+    if (!HOMEWORK_CATEGORIES.has(activeFilterType)) {
       issues = baseIssues;
       meta = baseMeta;
       ui.update({ issues, meta, summaryIssues: baseIssues, loading: false, progress: "", error: "" });
@@ -266,7 +261,6 @@ export async function startApp() {
           campId: selection.campId,
           classId: selection.classId,
           lessonOptions,
-          quicklyOperate,
           categoryType: activeFilterType
         });
         if (generation !== requestGeneration) return;
@@ -298,7 +292,7 @@ export async function startApp() {
       await loadSelectedClass(preservedSelection.classId, preservedSelection.lessonIds);
       if (generation !== requestGeneration) return;
       activeFilterType = preservedFilterType;
-      if (CATEGORY_OPERATIONS[preservedFilterType]) return loadCategory(preservedFilterType);
+      if (HOMEWORK_CATEGORIES.has(preservedFilterType)) return loadCategory(preservedFilterType);
       return;
     }
     if (preservedSelection.classId) return loadLessons(preservedSelection.classId);

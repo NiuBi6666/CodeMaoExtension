@@ -78,7 +78,7 @@ function installChromeMock(initial = {}) {
   Object.defineProperty(chromeApi, "runtime", {
     configurable: true,
     value: {
-      getManifest: () => ({ version: "1.3.7" }),
+      getManifest: () => ({ version: "1.3.9" }),
       sendMessage: async () => ({ ok: false, error: "unexpected background request" })
     }
   });
@@ -839,7 +839,7 @@ test("扩展模块均可加载", async () => {
 test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
-  equal(manifest.version, "1.3.8");
+  equal(manifest.version, "1.3.9");
   equal(manifest.permissions, ["storage"]);
   equal(manifest.background, { service_worker: "src/background.js", type: "module" });
   ok(manifest.host_permissions.includes("https://codedog.online/*"));
@@ -851,6 +851,17 @@ test("页面和后台脚本语法有效", async () => {
     const source = await fetch(path).then((response) => response.text());
     ok(new Function(source));
   }
+});
+
+test("作业分类使用 CRM 未全部答对筛选字段", async () => {
+  const adapterSource = await fetch("../src/crm-adapter.js").then((response) => response.text());
+  equal(
+    ["inClassHomeworkFilterTypes", "afterClassHomeworkFilterTypes", "afterClassTzHomeworkFilterTypes"]
+      .every((field) => adapterSource.includes(field)),
+    true
+  );
+  ok(adapterSource.includes("[2, 3, 4, 5]"));
+  ok(!adapterSource.includes("quicklyOperate"));
 });
 
 async function run() {

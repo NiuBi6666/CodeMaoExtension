@@ -702,18 +702,27 @@ export function selectLatestLessonJob(jobs, now = new Date(), lessonHint = null)
   };
 }
 
+const CATEGORY_FILTER_FIELDS = Object.freeze({
+  inclass: "inClassHomeworkFilterTypes",
+  homework: "afterClassHomeworkFilterTypes",
+  extension: "afterClassTzHomeworkFilterTypes"
+});
+const INCOMPLETE_HOMEWORK_FILTER_TYPES = Object.freeze([2, 3, 4, 5]);
+
 async function fetchStudentPages(bridge, teacherId, camp, lesson, classId = "", {
-  quicklyOperate = null,
+  categoryType = "",
   includeTotal = true,
   firstPageOnly = false
 } = {}) {
   const pageSize = 200;
+  const homeworkFilterField = CATEGORY_FILTER_FIELDS[categoryType] || "";
   const first = await bridge.replay("teachSearch", {
     teacherId,
     campId: camp.id,
     classId,
     lesson: lesson.requestFields,
-    quicklyOperate,
+    homeworkFilterField,
+    homeworkFilterTypes: homeworkFilterField ? INCOMPLETE_HOMEWORK_FILTER_TYPES : [],
     page: 1,
     pageSize,
     allClasses: !classId
@@ -731,7 +740,8 @@ async function fetchStudentPages(bridge, teacherId, camp, lesson, classId = "", 
         campId: camp.id,
         classId,
         lesson: lesson.requestFields,
-        quicklyOperate,
+        homeworkFilterField,
+        homeworkFilterTypes: homeworkFilterField ? INCOMPLETE_HOMEWORK_FILTER_TYPES : [],
         page,
         pageSize,
         allClasses: !classId
@@ -794,7 +804,7 @@ export async function resolveLessonEndedAt({ campId = "", classId = "", lessonOp
   };
 }
 
-export async function collectCategoryRows({ campId = "", classId = "", lessonOptions = [], lessonOption = null, quicklyOperate, categoryType = "", now = new Date() }) {
+export async function collectCategoryRows({ campId = "", classId = "", lessonOptions = [], lessonOption = null, categoryType = "", now = new Date() }) {
   const context = await loadCrmContext();
   const { bridge, state, teacherId } = context;
   if (!state.templates?.teachSearch) {
@@ -805,6 +815,7 @@ export async function collectCategoryRows({ campId = "", classId = "", lessonOpt
   const camp = context.camps.find((item) => item.id === selectedCampId);
   if (!camp) throw new Error("选择的营期不存在");
   if (!selectedClassId) throw new Error("请先选择班级");
+  if (!CATEGORY_FILTER_FIELDS[categoryType]) throw new Error("无法识别作业分类");
   const options = [...new Map(
     [...(Array.isArray(lessonOptions) ? lessonOptions : []), ...(lessonOption ? [lessonOption] : [])]
       .map((option) => [normalizeId(option?.value || option?.id), option])
@@ -831,7 +842,7 @@ export async function collectCategoryRows({ campId = "", classId = "", lessonOpt
     };
     try {
       const page = await fetchStudentPages(bridge, teacherId, camp, lesson, selectedClassId, {
-        quicklyOperate,
+        categoryType,
         includeTotal: false
       });
       const effectiveLesson = { ...lesson, endedAt: lesson.endedAt || page.lessonEndedAt || "" };
@@ -872,7 +883,8 @@ export async function collectCategoryRows({ campId = "", classId = "", lessonOpt
       lessonCount: options.length,
       matchedStudentCount: categoryRows.length,
       categoryType,
-      quicklyOperate,
+      homeworkFilterField: CATEGORY_FILTER_FIELDS[categoryType],
+      homeworkFilterTypes: [...INCOMPLETE_HOMEWORK_FILTER_TYPES],
       warnings,
       refreshedAt: new Date().toISOString()
     }
@@ -1009,10 +1021,6 @@ export async function collectAllIssues({ roster = [], overrides, campId = "", cl
   await mapWithConcurrency(jobs, LESSON_REQUEST_CONCURRENCY, async ({ camp, lesson, schedules }) => {
     try {
       const page = await fetchStudentPages(bridge, teacherId, camp, lesson, selectedClass.id);
-      const acceptedClassIds = new Set([selectedClass.id, selectedClass.name, ...(selectedClass.aliases || [])].map(normalizeText).filter(Boolean));
-      const scopedRecords = page.records.filter((record) => acceptedClassIds.has(normalizeText(record.currentClassId)));
-      if (scopedRecords.length || !page.records.length) page.records = scopedRecords;
-      else warnings.push(`${selectedClass.name}：学员行未返回可匹配的班级标识，已采用 CRM 班级筛选结果`);
       page.records.forEach((record) => {
         if (!record.currentClassTime) record.currentClassTime = schedules.get(record.currentClassId) || "";
       });

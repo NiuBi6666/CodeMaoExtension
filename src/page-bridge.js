@@ -200,10 +200,6 @@
       if (/^(internal)?teacherid$/.test(normalizedKey) && params.teacherId != null) next = params.teacherId;
       if (/^(page|pageno|pageindex|current)$/.test(normalizedKey) && params.page != null) next = params.page;
       if (/^(pagesize|limit|size)$/.test(normalizedKey) && params.pageSize != null) next = params.pageSize;
-      if (normalizedKey === "classuserteacherwechatquicklyoperate" && params.quicklyOperate !== undefined) {
-        next = params.quicklyOperate;
-      }
-
       const lesson = params.lesson || {};
       if (/^(lessonid|camplessonid|courselessonid)$/.test(normalizedKey)) {
         next = lesson[key] ?? lesson[normalizedKey] ?? lesson.lessonId ?? lesson.campLessonId ?? lesson.id ?? next;
@@ -217,6 +213,30 @@
       output[key] = next;
     }
     return output;
+  }
+
+  function applyTeachSearchFilters(payload, field, filterTypes) {
+    const homeworkFields = new Set([
+      "inclasshomeworkfiltertypes",
+      "afterclasshomeworkfiltertypes",
+      "afterclasstzhomeworkfiltertypes"
+    ]);
+    const clean = (value) => {
+      if (Array.isArray(value)) return value.map(clean);
+      if (!value || typeof value !== "object") return value;
+      const output = {};
+      for (const [key, child] of Object.entries(value)) {
+        const normalizedKey = key.replace(/[_-]/g, "").toLowerCase();
+        if (normalizedKey === "classuserteacherwechatquicklyoperate" || homeworkFields.has(normalizedKey)) continue;
+        output[key] = clean(child);
+      }
+      return output;
+    };
+    const patched = clean(payload);
+    if (patched && typeof patched === "object" && !Array.isArray(patched) && field && Array.isArray(filterTypes) && filterTypes.length) {
+      patched[field] = [...filterTypes];
+    }
+    return patched;
   }
 
   function buildReplayRequest(kind, params) {
@@ -278,10 +298,9 @@
     if (typeof body === "string" && body.trim().startsWith("{")) {
       const parsed = parseJson(body);
       if (parsed) {
-        const patched = patchPayload(parsed, params);
-        if (kind === "teachSearch" && params.quicklyOperate !== undefined) {
-          if (params.quicklyOperate == null) delete patched.classUserTeacherWechatQuicklyOperate;
-          else patched.classUserTeacherWechatQuicklyOperate = params.quicklyOperate;
+        let patched = patchPayload(parsed, params);
+        if (kind === "teachSearch") {
+          patched = applyTeachSearchFilters(patched, params.homeworkFilterField, params.homeworkFilterTypes);
         }
         body = JSON.stringify(patched);
       }

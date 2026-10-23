@@ -2,7 +2,7 @@
 
 Chrome / Edge Manifest V3 扩展，用于在深空 CRM 工作台汇总当前教师各营期中的旷课、课后作业未完成、课后拓展未完成和调课学员。
 
-当前版本：`1.3.7`
+当前版本：`1.3.9`
 
 版本号使用三段式十进制递增，每一位达到 `10` 时向前一位进位。
 
@@ -54,8 +54,9 @@ Chrome / Edge Manifest V3 扩展，用于在深空 CRM 工作台汇总当前教�
 - “导出 Excel”会导出当前筛选后实际显示的 6 列作业明细，学员 ID 以文本格式保存。
 - 多课节结果按课节分别保留明细行，并在学生名字后显示对应课节；列表按学员 ID 数值倒序分组，同一学员的课节按最新优先排列。
 - 课中作业、课后作业和课后拓展使用独立表格列与筛选分类，分别显示每种题型的“通过数/总数”和完成进度。
-- 作业分类按钮复用 CRM 教学期接口 `POST /live/class-user/teachSearch`：课中作业、课后作业、课后拓展分别传递 `classUserTeacherWechatQuicklyOperate` 值 `5`、`6`、`8`，列表直接展示接口返回的学员。
+- 作业分类按钮复用 CRM 教学期接口 `POST /live/class-user/teachSearch`：课中作业、课后作业、课后拓展分别传递 `inClassHomeworkFilterTypes`、`afterClassHomeworkFilterTypes`、`afterClassTzHomeworkFilterTypes`，筛选值均为 `[2,3,4,5]`，与 CRM“未全部答对”条件一致。
 - 三个作业分类会对接口结果二次筛选：OJ 题按通过数判断，客观题和应用题按完成数判断；客观题或应用题全部完成即视为完成，创作题不参与该筛选。
+- 班级结果以 CRM 接口对所选班级返回的数据为准，保留 CRM 纳入的调课、退班等关联学员，不再按当前班级字段二次排除。
 - CRM 教学期接口仍为 `POST /live/class-user/teachSearch`；应用题分别读取 `appClassin*`、`appAfterclass*` 和 `appAfterclassTz*` 字段组。
 
 ## 测试
