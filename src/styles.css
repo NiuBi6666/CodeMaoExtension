@@ -473,7 +473,7 @@
 .crm-alert-tag--mismatch { background: #f2f3f5; color: #4e5969; }
 .crm-alert-link-button { display: block; margin-top: 5px; border: 0 !important; padding: 0 !important; color: var(--crm-alert-blue) !important; background: transparent !important; }
 
-/* CRM 原生教学期表格：有已选学员时，在表头多选框旁提供跨分页反选。 */
+/* CRM 原生教学期表格：有已选学员时，在表头多选框旁提供当前页反选。 */
 .ant-table-wrapper th.crm-alert-selection-has-invert {
   z-index: 5 !important;
   overflow: visible !important;

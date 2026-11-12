@@ -30,7 +30,6 @@ import {
 } from "../src/crm-adapter.js";
 import { createXlsxWorkbook } from "../src/xlsx-exporter.js";
 import { AlertUI } from "../src/ui.js";
-import { parseSelectionSummary } from "../src/selection-inverter.js";
 import {
   buildRankingImportBatches,
   codeDogApi,
@@ -79,7 +78,7 @@ function installChromeMock(initial = {}) {
   Object.defineProperty(chromeApi, "runtime", {
     configurable: true,
     value: {
-      getManifest: () => ({ version: "1.4.0" }),
+      getManifest: () => ({ version: "1.4.1" }),
       sendMessage: async () => ({ ok: false, error: "unexpected background request" })
     }
   });
@@ -841,7 +840,7 @@ test("扩展模块均可加载", async () => {
 test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
-  equal(manifest.version, "1.4.0");
+  equal(manifest.version, "1.4.1");
   equal(manifest.permissions, ["storage"]);
   equal(manifest.background, { service_worker: "src/background.js", type: "module" });
   ok(manifest.host_permissions.includes("https://codedog.online/*"));
@@ -864,11 +863,6 @@ test("作业分类使用 CRM 未全部答对筛选字段", async () => {
   );
   ok(adapterSource.includes("[2, 3, 4, 5]"));
   ok(!adapterSource.includes("quicklyOperate"));
-});
-
-test("CRM 表格选择汇总支持学生和记录两种文案", () => {
-  equal(parseSelectionSummary("共计23个学生，已选中1个学生"), { total: 23, selected: 1 });
-  equal(parseSelectionSummary(" 共计 81 个记录，已选中 17 个记录 "), { total: 81, selected: 17 });
 });
 
 async function run() {
