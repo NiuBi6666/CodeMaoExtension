@@ -78,7 +78,7 @@ function installChromeMock(initial = {}) {
   Object.defineProperty(chromeApi, "runtime", {
     configurable: true,
     value: {
-      getManifest: () => ({ version: "1.4.1" }),
+      getManifest: () => ({ version: "1.4.2" }),
       sendMessage: async () => ({ ok: false, error: "unexpected background request" })
     }
   });
@@ -840,7 +840,7 @@ test("扩展模块均可加载", async () => {
 test("Manifest V3 配置有效且权限收敛", async () => {
   const manifest = await fetch("../manifest.json").then((response) => response.json());
   equal(manifest.manifest_version, 3);
-  equal(manifest.version, "1.4.1");
+  equal(manifest.version, "1.4.2");
   equal(manifest.permissions, ["storage"]);
   equal(manifest.background, { service_worker: "src/background.js", type: "module" });
   ok(manifest.host_permissions.includes("https://codedog.online/*"));
@@ -863,6 +863,14 @@ test("作业分类使用 CRM 未全部答对筛选字段", async () => {
   );
   ok(adapterSource.includes("[2, 3, 4, 5]"));
   ok(!adapterSource.includes("quicklyOperate"));
+});
+
+test("表头复选框三步选择逻辑不创建额外按钮", async () => {
+  const source = await fetch("../src/selection-inverter.js").then((response) => response.text());
+  ok(source.includes("stage === 0"));
+  ok(source.includes("stage === 1"));
+  ok(source.includes("cycles.delete(table)"));
+  ok(!source.includes("createElement(\"button\")"));
 });
 
 async function run() {
